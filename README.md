@@ -46,5 +46,4 @@ Battle CP fuses classic Battleship mechanics with competitive programming. Playe
 
 ## Documentation
 
-- [**Game Rules**](docs/rules.md): Detailed mechanics on Heat, Vetoes, and Tiebreakers.
-- [**Deployment Guide**](docs/deployment.md): Instructions for Railway (Backend) and Vercel (Frontend).
+- [**Game Rules**](rules.md): Detailed mechanics on Heat, Vetoes, and Tiebreakers.
