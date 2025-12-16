@@ -20,3 +20,5 @@ Thumbs.db
 # Private / Learning
 private_learning/
 .gemini/
+.venv/
+venv/
