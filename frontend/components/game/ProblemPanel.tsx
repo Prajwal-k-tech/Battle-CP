@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
-import { ExternalLink, Check, Clock, Shield, Loader2 } from "lucide-react";
+import { ExternalLink, Check, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Problem {
@@ -13,19 +13,27 @@ interface Problem {
     rating?: number;
 }
 
+// Module-level problem cache to avoid repeated API calls across overheat events
+// Persists for the lifetime of the tab, even across component re-renders
+const problemCache: Map<number, Problem[]> = new Map();
+
 interface ProblemPanelProps {
     isLocked: boolean;
     difficulty: number;
     vetoesRemaining: number;
+    maxVetoes: number;
     vetoTimeRemaining: number | null;
     onSolve: (contestId: number, problemIndex: string) => void;
     onVeto: () => void;
 }
 
+import { useSound } from "@/context/SoundContext";
+
 export function ProblemPanel({
     isLocked,
     difficulty,
     vetoesRemaining,
+    maxVetoes,
     vetoTimeRemaining,
     onSolve,
     onVeto,
@@ -33,9 +41,18 @@ export function ProblemPanel({
     const [problem, setProblem] = useState<Problem | null>(null);
     const [loading, setLoading] = useState(false);
     const [verifying, setVerifying] = useState(false);
+    const [verifyCooldown, setVerifyCooldown] = useState(0); // Seconds remaining before can verify again
     const [localVetoTime, setLocalVetoTime] = useState<number | null>(null);
+    const { playAlarm, playInvalid: playVeto } = useSound();
 
-    // Local countdown timer for veto
+    // Play alarm when locked
+    useEffect(() => {
+        if (isLocked) {
+            playAlarm();
+        }
+    }, [isLocked, playAlarm]);
+
+    // ... rest of timer logic
     useEffect(() => {
         if (vetoTimeRemaining !== null && vetoTimeRemaining > 0) {
             setLocalVetoTime(vetoTimeRemaining);
@@ -56,43 +73,89 @@ export function ProblemPanel({
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [isLocked, localVetoTime === null]); // Only re-run if lock state changes or timer starts/stops
+    }, [isLocked]); // Only re-run when lock state changes - timer manages itself
 
-    // Fetch problem - EXACT difficulty match
+    // ... fetchProblem logic unchanged
+
     const fetchProblem = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetch(
-                `https://codeforces.com/api/problemset.problems`
-            );
+            // Check cache first
+            let problems = problemCache.get(difficulty);
 
-            if (!response.ok) throw new Error("Failed to fetch problems");
+            if (!problems) {
+                // Cache miss - fetch from API
+                const response = await fetch(
+                    `https://codeforces.com/api/problemset.problems`
+                );
 
-            const data = await response.json();
-            if (data.status !== "OK") throw new Error("Codeforces API error");
+                if (!response.ok) throw new Error("Failed to fetch problems");
 
-            // EXACT difficulty match only (e.g., exactly 800, not 600-1000)
-            const problems: Problem[] = data.result.problems
-                .filter((p: Problem) => p.rating === difficulty)
-                .slice(0, 100);
+                const data = await response.json();
+                if (data.status !== "OK") throw new Error("Codeforces API error");
 
-            if (problems.length === 0) {
+                // Filter and cache ALL difficulty levels at once to minimize future calls
+                const allProblems = data.result.problems as Problem[];
+                const byRating = new Map<number, Problem[]>();
+
+                for (const p of allProblems) {
+                    if (p.rating) {
+                        const existing = byRating.get(p.rating) || [];
+                        if (existing.length < 100) { // Cap at 100 per rating
+                            existing.push(p);
+                            byRating.set(p.rating, existing);
+                        }
+                    }
+                }
+
+                // Store all ratings in cache
+                byRating.forEach((probs, rating) => {
+                    problemCache.set(rating, probs);
+                });
+
+                problems = problemCache.get(difficulty) || [];
+            }
+
+            if (!problems || problems.length === 0) {
                 throw new Error(`No problems found at rating ${difficulty}`);
             }
 
-            // Pick a random one
+            // Pick a random one from cache
             const randomProblem = problems[Math.floor(Math.random() * problems.length)];
             setProblem(randomProblem);
         } catch (error) {
             console.error("Failed to fetch problem:", error);
             toast.error("Failed to load problem from Codeforces");
 
-            // Fallback problems at exact rating
-            const fallbackProblems: Problem[] = [
-                { contestId: 1950, index: "A", name: "Stair, Peak, or Neither?", rating: 800 },
-                { contestId: 1950, index: "B", name: "Upscaling", rating: 800 },
-                { contestId: 1951, index: "A", name: "Dual Trigger", rating: 800 },
-            ];
+            // Fallback problems by rating - used when CF API is down
+            const fallbacksByRating: Record<number, Problem[]> = {
+                800: [
+                    { contestId: 1950, index: "A", name: "Stair, Peak, or Neither?", rating: 800 },
+                    { contestId: 1950, index: "B", name: "Upscaling", rating: 800 },
+                ],
+                1000: [
+                    { contestId: 1941, index: "B", name: "Rudolf and 121", rating: 1000 },
+                    { contestId: 1937, index: "B", name: "Binary Path", rating: 1000 },
+                ],
+                1200: [
+                    { contestId: 1941, index: "C", name: "Rudolf and the Ugly String", rating: 1200 },
+                    { contestId: 1937, index: "C", name: "Bitwise Operation Wizard", rating: 1200 },
+                ],
+                1400: [
+                    { contestId: 1941, index: "D", name: "Rudolf and the Ball Game", rating: 1400 },
+                    { contestId: 1929, index: "C", name: "Sasha and the Casino", rating: 1400 },
+                ],
+                1600: [
+                    { contestId: 1929, index: "D", name: "Sasha and a Walk in the City", rating: 1600 },
+                ],
+            };
+            // Find closest available rating
+            const availableRatings = Object.keys(fallbacksByRating).map(Number).sort((a, b) => a - b);
+            const closestRating = availableRatings.reduce((prev, curr) =>
+                Math.abs(curr - difficulty) < Math.abs(prev - difficulty) ? curr : prev
+            );
+            const fallbackProblems = fallbacksByRating[closestRating] || fallbacksByRating[800];
+            toast.warning(`Using fallback problem (rating ${closestRating})`);
             setProblem(fallbackProblems[Math.floor(Math.random() * fallbackProblems.length)]);
         } finally {
             setLoading(false);
@@ -105,19 +168,29 @@ export function ProblemPanel({
         } else if (!isLocked) {
             setProblem(null);
             setLocalVetoTime(null);
+            // If we just unlocked, plays sound? Handled by backend message but here we can too
         }
     }, [isLocked, problem, fetchProblem]);
 
     const handleVerify = async () => {
-        if (!problem) return;
+        if (!problem || verifyCooldown > 0) return;
         setVerifying(true);
+        setVerifyCooldown(30);
         try {
             onSolve(problem.contestId, problem.index);
             toast.info("Verifying submission...");
+            // Backend will send confirmation which unlocks weapons -> triggers effect cleanup
         } finally {
-            setTimeout(() => setVerifying(false), 5000);
+            setTimeout(() => setVerifying(false), 3000);
         }
     };
+
+    // Countdown timer for verify cooldown
+    useEffect(() => {
+        if (verifyCooldown <= 0) return;
+        const timer = setTimeout(() => setVerifyCooldown(c => c - 1), 1000);
+        return () => clearTimeout(timer);
+    }, [verifyCooldown]);
 
     const handleVeto = () => {
         if (vetoesRemaining <= 0) {
@@ -128,6 +201,7 @@ export function ProblemPanel({
             toast.error("Already on veto timer!");
             return;
         }
+        playVeto();
         onVeto();
     };
 
@@ -207,13 +281,18 @@ export function ProblemPanel({
                                     <div className="space-y-2">
                                         <Button
                                             onClick={handleVerify}
-                                            disabled={verifying || (localVetoTime !== null && localVetoTime > 0)}
+                                            disabled={verifying || verifyCooldown > 0 || (localVetoTime !== null && localVetoTime > 0)}
                                             className="w-full h-11 bg-green-600 hover:bg-green-500 font-bold"
                                         >
                                             {verifying ? (
                                                 <>
                                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                                     Verifying...
+                                                </>
+                                            ) : verifyCooldown > 0 ? (
+                                                <>
+                                                    <Clock className="w-4 h-4 mr-2" />
+                                                    Wait {verifyCooldown}s
                                                 </>
                                             ) : (
                                                 <>
@@ -236,8 +315,7 @@ export function ProblemPanel({
                                                 </div>
                                             ) : (
                                                 <div className="flex items-center gap-2">
-                                                    <Shield className="w-4 h-4" />
-                                                    <span>Veto ({vetoesRemaining}/3)</span>
+                                                    <span>Veto ({vetoesRemaining}/{maxVetoes})</span>
                                                 </div>
                                             )}
                                         </Button>
@@ -254,7 +332,8 @@ export function ProblemPanel({
                         </div>
                     </div>
                 </motion.div>
-            )}
-        </AnimatePresence>
+            )
+            }
+        </AnimatePresence >
     );
 }

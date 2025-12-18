@@ -5,11 +5,22 @@ import { Button } from "@/components/ui/button";
 import { Terminal, Users } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { useSound } from "@/context/SoundContext";
+import { useMusic } from "@/context/MusicContext";
+import { useEffect } from "react";
 
 // Stable constant for FaultyTerminal to prevent re-renders
 const GRID_MUL: [number, number] = [2, 1];
 
 export default function Home() {
+  const { playJoin, playSuccess } = useSound();
+  const { setPhase } = useMusic();
+
+  // Start menu music on page load
+  useEffect(() => {
+    setPhase("menu");
+  }, [setPhase]);
+
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-black text-white selection:bg-primary/30">
       {/* Background with FaultyTerminal */}
@@ -56,7 +67,7 @@ export default function Home() {
 
           {/* Action Buttons */}
           <div className="flex flex-col gap-4 min-[400px]:flex-row pt-4 pointer-events-auto">
-            <Link href="/lobby/create">
+            <Link href="/lobby/create" onClick={() => playSuccess()}>
               <Button
                 size="lg"
                 className="h-16 px-8 text-base gap-3 bg-emerald-600 hover:bg-emerald-500 border-none tracking-wider"
@@ -66,7 +77,7 @@ export default function Home() {
                 START
               </Button>
             </Link>
-            <Link href="/lobby/join">
+            <Link href="/lobby/join" onClick={() => playJoin()}>
               <Button
                 size="lg"
                 variant="outline"

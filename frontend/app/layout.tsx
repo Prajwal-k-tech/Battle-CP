@@ -35,6 +35,9 @@ export const metadata: Metadata = {
   description: "A real-time strategy game blending Battleship mechanics with competitive programming problems.",
 };
 
+import { SoundProvider } from "@/context/SoundContext";
+import { MusicProvider } from "@/context/MusicContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -48,7 +51,7 @@ export default function RootLayout({
           inter.variable,
           spaceGrotesk.variable,
           jetbrainsMono.variable,
-          pressStart2P.variable // 3. Apply variable
+          pressStart2P.variable
         )}
       >
         <ThemeProvider
@@ -58,13 +61,17 @@ export default function RootLayout({
           forcedTheme="dark"
           disableTransitionOnChange
         >
-          {children}
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              className: "border border-white/10 bg-black text-white",
-            }}
-          />
+          <SoundProvider>
+            <MusicProvider>
+              {children}
+              <Toaster
+                position="bottom-right"
+                toastOptions={{
+                  className: "border border-white/10 bg-black text-white",
+                }}
+              />
+            </MusicProvider>
+          </SoundProvider>
         </ThemeProvider>
       </body>
     </html>

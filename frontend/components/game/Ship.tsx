@@ -1,7 +1,6 @@
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
 import { RotateCw } from 'lucide-react';
 
 interface Props {
@@ -36,14 +35,8 @@ export function Ship({ id, size, orientation, placed, onRotate }: Props) {
             {...attributes}
             className={cn(
                 "relative cursor-grab active:cursor-grabbing touch-none z-50",
-                isDragging && "opacity-80 scale-105 z-[100]"
+                isDragging && "opacity-80 scale-105 z-100"
             )}
-            onClick={(e) => {
-                // Check if it's a quick click to rotate, but only if not dragging?
-                // Dnd kit handles drag, so click might propagate.
-                // Simplified: double click to rotate? or separate button.
-                // User requested robust system.
-            }}
         >
             <div
                 className={cn(

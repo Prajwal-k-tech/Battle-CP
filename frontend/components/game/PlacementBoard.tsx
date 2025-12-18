@@ -8,7 +8,6 @@ import { Ship } from './Ship';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { RotateCcw, Check, Shuffle } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 // Ship Types
 type Orientation = 'horizontal' | 'vertical';
@@ -30,9 +29,12 @@ const INITIAL_SHIPS: ShipData[] = [
     { id: 'destroyer', name: 'Destroyer', size: 2, orientation: 'horizontal', placed: false, x: -1, y: -1 },
 ];
 
+import { useSound } from '@/context/SoundContext';
+
 export function PlacementBoard({ onConfirm }: { onConfirm: (ships: ShipData[]) => void }) {
     const [ships, setShips] = useState<ShipData[]>(INITIAL_SHIPS);
     const [activeId, setActiveId] = useState<string | null>(null);
+    const { playShipPlace, playInvalid, playMiss } = useSound();
 
     const sensors = useSensors(
         useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
@@ -56,16 +58,22 @@ export function PlacementBoard({ onConfirm }: { onConfirm: (ships: ShipData[]) =
             const [x, y] = over.id.toString().split('-').map(Number);
             const ship = ships.find(s => s.id === active.id);
 
-            if (ship && isValidPlacement(ship, x, y, ships.filter(s => s.id !== ship.id))) {
-                setShips(prev => prev.map(s =>
-                    s.id === ship.id
-                        ? { ...s, placed: true, x, y }
-                        : s
-                ));
+            if (ship) {
+                if (isValidPlacement(ship, x, y, ships.filter(s => s.id !== ship.id))) {
+                    setShips(prev => prev.map(s =>
+                        s.id === ship.id
+                            ? { ...s, placed: true, x, y }
+                            : s
+                    ));
+                    playShipPlace();
+                } else {
+                    playInvalid();
+                }
             }
         }
     };
 
+    // ... rest of component
     const rotateShip = (id: string) => {
         setShips(prev => {
             const ship = prev.find(s => s.id === id);
@@ -77,7 +85,8 @@ export function PlacementBoard({ onConfirm }: { onConfirm: (ships: ShipData[]) =
                 if (isValidPlacement({ ...ship, orientation: newOrientation }, ship.x, ship.y, prev.filter(s => s.id !== id))) {
                     return prev.map(s => s.id === id ? { ...s, orientation: newOrientation } : s);
                 }
-                return prev; // Invalid rotation
+                playInvalid(); // Rotate failed blocked
+                return prev;
             }
 
             return prev.map(s => s.id === id ? { ...s, orientation: newOrientation } : s);
@@ -114,7 +123,7 @@ export function PlacementBoard({ onConfirm }: { onConfirm: (ships: ShipData[]) =
 
     // Randomize fleet placement
     const randomizeFleet = () => {
-        let newShips = INITIAL_SHIPS.map(s => ({ ...s }));
+        const newShips = INITIAL_SHIPS.map(s => ({ ...s }));
         const placedShips: ShipData[] = [];
 
         for (const ship of newShips) {
@@ -142,6 +151,7 @@ export function PlacementBoard({ onConfirm }: { onConfirm: (ships: ShipData[]) =
         }
 
         setShips(newShips);
+        playShipPlace();
     };
 
     const activeShip = activeId ? ships.find(s => s.id === activeId) : null;
@@ -216,13 +226,13 @@ export function PlacementBoard({ onConfirm }: { onConfirm: (ships: ShipData[]) =
                     </div>
 
                     <div className="flex justify-between items-center">
-                        <Button variant="ghost" onClick={() => setShips(INITIAL_SHIPS)}>
+                        <Button variant="ghost" onClick={() => { setShips(INITIAL_SHIPS); playMiss(); }}>
                             <RotateCcw className="w-4 h-4 mr-2" /> Reset
                         </Button>
                         <div className="text-zinc-500 font-mono text-sm">
                             {ships.filter(s => s.placed).length} / 5 PLACED
                         </div>
-                        <div onClick={() => !ships.every(s => s.placed) && alert("Deploy all ships first!")}>
+                        <div onClick={() => !ships.every(s => s.placed) && (alert("Deploy all ships first!"), playInvalid())}>
                             <Button
                                 variant="neon"
                                 disabled={!ships.every(s => s.placed)}

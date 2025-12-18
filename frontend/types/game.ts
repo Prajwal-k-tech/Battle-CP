@@ -29,6 +29,7 @@ export interface GameState {
     // HUD State
     heat: number;
     maxHeat: number;
+    maxVetoes: number;
     isLocked: boolean;
     vetoesRemaining: number;
     vetoTimeRemaining: number | null;
@@ -62,7 +63,8 @@ export const initialGameState: GameState = {
     enemyGrid: Array(10).fill(null).map(() => Array(10).fill("empty")),
 
     heat: 0,
-    maxHeat: 7,
+    maxHeat: 7, // Default, will be updated from server
+    maxVetoes: 3, // Default, will be updated from server
     isLocked: false,
     vetoesRemaining: 3,
     vetoTimeRemaining: null,
@@ -89,21 +91,25 @@ export type ClientMessage =
 // Server -> Client Messages
 export type ServerMessage =
     // Lobby
-    | { type: "GameJoined"; game_id: string; player_id: string; difficulty: number }
+    | { type: "GameJoined"; game_id: string; player_id: string; difficulty: number; max_heat: number; max_vetoes: number }
     | { type: "PlayerJoined"; player_id: string }
 
     // Placement
     | { type: "ShipsConfirmed"; player_id: string }
     | { type: "GameStart" }
 
+    // Reconnection
+    | { type: "YourShips"; ships: ShipPlacement[] }
+    | { type: "GridSync"; my_grid: CellState[][]; enemy_grid: CellState[][] }
+
     // Combat
-    | { type: "GameUpdate"; status: string; your_turn: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number }
+    | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number }
     | { type: "ShotResult"; x: number; y: number; hit: boolean; sunk: boolean; shooter_id: string }
     | { type: "WeaponsLocked" }
     | { type: "WeaponsUnlocked"; reason: string } // "solved" or "veto_expired"
 
     // End
-    | { type: "GameOver"; winner_id: string | null; reason: string }
+    | { type: "GameOver"; winner_id: string | null; reason: string; your_shots_hit: number; your_shots_missed: number; your_ships_sunk: number; your_problems_solved: number }
 
     // Error
     | { type: "Error"; message: string };

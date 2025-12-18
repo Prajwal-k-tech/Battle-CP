@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { Flame, Shield, Clock, AlertTriangle } from "lucide-react";
+import { Flame, Clock, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface HUDProps {
@@ -12,6 +12,7 @@ interface HUDProps {
     gameTimeRemaining: number;
     vetoTimeRemaining: number | null;
     vetoesRemaining: number;
+    maxVetoes: number;
     status: string;
     opponentConnected: boolean;
 }
@@ -22,13 +23,14 @@ function formatTime(seconds: number): string {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function HUD({
+function HUDComponent({
     heat,
     maxHeat,
     isLocked,
     gameTimeRemaining,
     vetoTimeRemaining,
     vetoesRemaining,
+    maxVetoes,
     status,
     opponentConnected,
 }: HUDProps) {
@@ -64,7 +66,7 @@ export function HUD({
                         "text-sm font-mono font-bold min-w-[40px]",
                         isOverheating ? "text-red-500" : isWarning ? "text-orange-500" : "text-blue-500"
                     )}>
-                        {heat}/{maxHeat}
+                        {heat}/{maxHeat || 7}
                     </span>
                 </div>
             </div>
@@ -85,16 +87,16 @@ export function HUD({
 
             {/* Right Section: Veto & Connection */}
             <div className="flex items-center gap-6">
-                {/* Veto Status */}
+                {/* Veto Status - dots indicating vetoes remaining */}
                 <div className="flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-purple-500" />
+                    <span className="text-xs text-zinc-400 uppercase tracking-wider font-mono">Veto</span>
                     {vetoTimeRemaining !== null ? (
                         <span className="text-orange-500 font-mono animate-pulse">
-                            VETO: {formatTime(vetoTimeRemaining)}
+                            {formatTime(vetoTimeRemaining)}
                         </span>
                     ) : (
                         <div className="flex gap-1">
-                            {Array.from({ length: 3 }).map((_, i) => (
+                            {Array.from({ length: maxVetoes || 3 }).map((_, i) => (
                                 <div
                                     key={i}
                                     className={cn(
@@ -143,3 +145,4 @@ export function HUD({
     );
 }
 
+export const HUD = React.memo(HUDComponent);

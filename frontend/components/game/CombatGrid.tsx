@@ -17,18 +17,14 @@ interface CombatGridProps {
 const GRID_SIZE = 10;
 const LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
 
-function Cell({
+const Cell = React.memo(function Cell({
     state,
     isEnemy,
-    x,
-    y,
     onClick,
     canClick,
 }: {
     state: CellState;
     isEnemy: boolean;
-    x: number;
-    y: number;
     onClick?: () => void;
     canClick: boolean;
 }) {
@@ -83,7 +79,7 @@ function Cell({
             )}
         </motion.button>
     );
-}
+});
 
 function GridWithLabels({
     grid,
@@ -164,8 +160,6 @@ function GridWithLabels({
                                         key={`${x}-${y}`}
                                         state={getCellState(x, y)}
                                         isEnemy={isEnemy}
-                                        x={x}
-                                        y={y}
                                         onClick={isEnemy && onCellClick ? () => onCellClick(x, y) : undefined}
                                         canClick={isEnemy && canFire && getCellState(x, y) === "empty"}
                                     />
@@ -179,7 +173,18 @@ function GridWithLabels({
     );
 }
 
+import { useSound } from "@/context/SoundContext";
+
 export function CombatGrid({ myGrid, enemyGrid, myShips, onFire, canFire }: CombatGridProps) {
+    const { playFire } = useSound();
+
+    const handleFire = (x: number, y: number) => {
+        if (canFire) {
+            playFire(); // Immediate feedback
+            onFire(x, y);
+        }
+    };
+
     return (
         <div className="flex flex-col lg:flex-row gap-8 lg:gap-16 items-center justify-center p-4">
             {/* Your Fleet */}
@@ -203,7 +208,7 @@ export function CombatGrid({ myGrid, enemyGrid, myShips, onFire, canFire }: Comb
                 grid={enemyGrid}
                 title="Enemy Waters"
                 isEnemy={true}
-                onCellClick={onFire}
+                onCellClick={handleFire}
                 canFire={canFire}
             />
         </div>

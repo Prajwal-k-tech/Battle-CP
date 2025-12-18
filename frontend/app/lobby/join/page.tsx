@@ -12,10 +12,13 @@ import { MemoizedFaultyTerminal } from "@/components/ui/FaultyTerminal";
 // Stable constant for FaultyTerminal to prevent re-renders
 const GRID_MUL: [number, number] = [2, 1];
 
+import { useSound } from "@/context/SoundContext";
+
 export default function JoinGamePage() {
     const router = useRouter();
     const [lobbyId, setLobbyId] = useState("");
     const [cfHandle, setCfHandle] = useState("");
+    const { playJoin } = useSound();
 
     const handleJoin = (e: React.FormEvent) => {
         e.preventDefault();
@@ -25,8 +28,11 @@ export default function JoinGamePage() {
             return;
         }
 
-        if (lobbyId.trim().length < 3) {
-            toast.error("Please enter a valid lobby code");
+        // Validate lobby code format (UUIDs are 36 characters with dashes)
+        const trimmedLobbyId = lobbyId.trim();
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(trimmedLobbyId)) {
+            toast.error("Invalid lobby code format", { description: "Please enter a valid game code" });
             return;
         }
 
@@ -97,6 +103,7 @@ export default function JoinGamePage() {
                                 type="submit"
                                 className="w-full h-12 text-lg bg-purple-600 hover:bg-purple-700"
                                 disabled={lobbyId.length < 3 || !cfHandle.trim()}
+                                onClick={() => playJoin()}
                             >
                                 CONNECT <ArrowRight className="w-4 h-4 ml-2" />
                             </Button>

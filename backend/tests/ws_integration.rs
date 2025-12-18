@@ -77,10 +77,10 @@ async fn test_ws_connection_and_flow() {
                         assert_eq!(pid, player1_id);
                     }
                     ServerMessage::GameUpdate {
-                        status, your_turn, ..
+                        status, is_active, ..
                     } => {
                         assert_eq!(status, "Joined Game!");
-                        assert!(your_turn); // Player 1 starts
+                        assert!(is_active); // Player 1 starts
                     }
                     _ => panic!("Expected GameUpdate or GameJoined, got {:?}", server_msg),
                 }

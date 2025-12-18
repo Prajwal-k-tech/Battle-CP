@@ -10,6 +10,12 @@ pub struct AppState {
     pub cf_client: crate::cf_client::CFClient,
 }
 
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppState {
     pub fn new() -> Self {
         Self {
@@ -71,7 +77,11 @@ pub struct Game {
     pub status: GameStatus,
     pub config: GameConfig,
     #[serde(skip)]
+    pub created_at: std::time::Instant, // When lobby was created (for cleanup)
+    #[serde(skip)]
     pub game_started_at: Option<std::time::Instant>,
+    #[serde(skip)]
+    pub finished_at: Option<std::time::Instant>, // For auto-cleanup
     #[serde(skip)]
     pub tx: broadcast::Sender<GameEvent>,
 }
@@ -98,6 +108,8 @@ pub struct Player {
     pub ships_placed: bool,
     #[serde(skip)]
     pub veto_started_at: Option<std::time::Instant>,
+    #[serde(skip)]
+    pub last_verification_attempt: Option<std::time::Instant>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

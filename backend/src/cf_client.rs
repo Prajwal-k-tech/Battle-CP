@@ -5,10 +5,16 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// Type alias for the problem cache to reduce type complexity
+type ProblemCache = Arc<Mutex<HashMap<i32, (Instant, Vec<Problem>)>>>;
+/// Type alias for the user existence cache
+type UserCache = Arc<Mutex<HashMap<String, (Instant, bool)>>>;
+
 #[derive(Clone)]
 pub struct CFClient {
     client: Client,
-    cache: Arc<Mutex<HashMap<i32, (Instant, Vec<Problem>)>>>,
+    cache: ProblemCache,
+    user_cache: UserCache,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,11 +51,18 @@ pub struct Submission {
     pub problem: Problem,
 }
 
+impl Default for CFClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CFClient {
     pub fn new() -> Self {
         Self {
             client: Client::new(),
             cache: Arc::new(Mutex::new(HashMap::new())),
+            user_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -139,19 +152,37 @@ impl CFClient {
         &self,
         handle: &str,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // 1. Check Cache
+        {
+            let cache = self.user_cache.lock().unwrap();
+            if let Some((timestamp, exists)) = cache.get(handle) {
+                if timestamp.elapsed() < Duration::from_secs(600) {
+                    // 10 min cache
+                    return Ok(*exists);
+                }
+            }
+        }
+
         let url = format!("https://codeforces.com/api/user.info?handles={}", handle);
 
         let resp = self.client.get(&url).send().await?;
+        let mut exists = false;
 
         // Check if we got a valid response
         if resp.status().is_success() {
             let body: serde_json::Value = resp.json().await?;
             // If status is "OK", user exists
             if body.get("status").and_then(|v| v.as_str()) == Some("OK") {
-                return Ok(true);
+                exists = true;
             }
         }
 
-        Ok(false)
+        // 2. Update Cache
+        {
+            let mut cache = self.user_cache.lock().unwrap();
+            cache.insert(handle.to_string(), (Instant::now(), exists));
+        }
+
+        Ok(exists)
     }
 }

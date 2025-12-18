@@ -44,13 +44,15 @@ pub async fn create_game(
     };
 
     let config = GameConfig {
-        difficulty: payload.difficulty.unwrap_or(800),
-        heat_threshold: payload.heat_threshold.unwrap_or(7),
+        difficulty: payload.difficulty.unwrap_or(800).clamp(800, 3500),
+        heat_threshold: payload.heat_threshold.unwrap_or(7).clamp(3, 20),
         game_duration_secs: payload
             .game_duration_mins
             .map(|m| (m * 60) as u64)
-            .unwrap_or(45 * 60),
+            .unwrap_or(45 * 60)
+            .clamp(300, 7200),
         veto_penalties,
+        // Default max_vetoes to 3
         ..GameConfig::default()
     };
 

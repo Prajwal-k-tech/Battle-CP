@@ -39,6 +39,9 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         gameId: msg.game_id,
                         playerId: msg.player_id,
                         difficulty: msg.difficulty,
+                        maxHeat: msg.max_heat,
+                        maxVetoes: msg.max_vetoes,
+                        vetoesRemaining: msg.max_vetoes, // Initialize from server config
                         status: wasConnecting ? "Waiting for opponent..." : prev.status,
                     };
                 });
@@ -153,6 +156,21 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 });
                 break;
 
+            case "YourShips":
+                setGameState(prev => ({
+                    ...prev,
+                    ships: msg.ships,
+                }));
+                break;
+
+            case "GridSync":
+                setGameState(prev => ({
+                    ...prev,
+                    myGrid: msg.my_grid,
+                    enemyGrid: msg.enemy_grid,
+                }));
+                break;
+
             case "WeaponsLocked":
                 setGameState(prev => ({
                     ...prev,
@@ -181,6 +199,9 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     winnerId: msg.winner_id,
                     gameOverReason: msg.reason,
                     status: msg.winner_id === prev.playerId ? "VICTORY" : "DEFEAT",
+                    // Use server-provided stats
+                    problemsSolved: msg.your_problems_solved ?? prev.problemsSolved,
+                    enemyShipsSunk: msg.your_ships_sunk ?? prev.enemyShipsSunk,
                 }));
                 break;
 
@@ -190,10 +211,10 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     ...prev,
                     lastError: msg.message,
                 }));
-                // If game not found, set flag to prevent reconnection
-                if (msg.message.includes("Game not found") || msg.message.includes("not found")) {
+                // If game not found or ended, set flag to prevent reconnection
+                if (msg.message.includes("Game not found") || msg.message.includes("not found") || msg.message.includes("already ended")) {
                     setGameNotFound(true);
-                    toast.error("Game not found. Please create a new game.");
+                    toast.error("Game not found or has ended. Please create a new game.");
                 } else if (msg.message.includes("Submission not accepted") || msg.message.includes("No accepted submission")) {
                     toast.error("No accepted submission found. Solve the problem on Codeforces first!");
                 } else {

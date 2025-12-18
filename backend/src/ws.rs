@@ -147,7 +147,7 @@ async fn handle_socket(
                                             let remaining = game.config.game_duration_secs.saturating_sub(elapsed);
 
                                             // Calculate veto time remaining if player is on veto timer
-                                            let veto_durations = [420u64, 600, 900]; // 7, 10, 15 minutes
+                                            let veto_durations = game.config.veto_penalties;
                                             let veto_time_remaining = if let Some(veto_start) = p.veto_started_at {
                                                 let duration = veto_durations
                                                     .get(p.vetoes_used.saturating_sub(1) as usize)
@@ -165,7 +165,7 @@ async fn handle_socket(
 
                                             let update = ServerMessage::GameUpdate {
                                                 status: format!("{:?}", game.status),
-                                                your_turn: true,
+                                                is_active: true,
                                                 heat: p.heat,
                                                 is_locked: p.is_locked,
                                                 time_remaining_secs: remaining,
@@ -223,6 +223,13 @@ async fn handle_client_message(
             *player_id = Some(pid);
             let mut games = state.games.write().await;
             if let Some(game) = games.get_mut(&game_id) {
+                // Check if game is finished - reject all join attempts
+                if game.status == crate::state::GameStatus::Finished {
+                    return vec![ServerMessage::Error {
+                        message: "Game has already ended".to_string(),
+                    }];
+                }
+
                 // Check if player is already in the game (Reconnect)
                 let is_p1 = game.player1.id == pid;
                 let is_p2 = game.player2.as_ref().map(|p| p.id) == Some(pid);
@@ -236,6 +243,8 @@ async fn handle_client_message(
                         game_id,
                         player_id: pid,
                         difficulty: game.config.difficulty,
+                        max_heat: game.config.heat_threshold,
+                        max_vetoes: game.config.max_vetoes,
                     });
 
                     // 2. Send Current State
@@ -251,7 +260,7 @@ async fn handle_client_message(
                     let remaining = game.config.game_duration_secs.saturating_sub(elapsed);
                     msgs.push(ServerMessage::GameUpdate {
                         status: format!("{:?}", game.status),
-                        your_turn: true,
+                        is_active: true,
                         heat: player.heat,
                         is_locked: player.is_locked,
                         time_remaining_secs: remaining,
@@ -259,15 +268,81 @@ async fn handle_client_message(
                         veto_time_remaining_secs: None,
                     });
 
-                    // 3. If ships placed, confirm
+                    // 3. If ships placed, confirm and RESEND ships
                     if player.ships_placed {
                         msgs.push(ServerMessage::ShipsConfirmed { player_id: pid });
+
+                        if !player.ships.is_empty() {
+                            msgs.push(ServerMessage::YourShips {
+                                ships: player
+                                    .ships
+                                    .iter()
+                                    .map(|s| crate::protocol::ShipPlacement {
+                                        x: s.x,
+                                        y: s.y,
+                                        size: s.size,
+                                        vertical: s.vertical,
+                                    })
+                                    .collect(),
+                            });
+                        }
                     }
 
-                    // 4. If game started (both placed), send GameStart
-                    // (Actually GameUpdate status handles part of this, but explicit message helps)
-                    if game.status == crate::state::GameStatus::Playing {
+                    // 4. If game started (both placed), send GameStart and Grids
+                    if game.status == crate::state::GameStatus::Playing
+                        || game.status == crate::state::GameStatus::SuddenDeath
+                    {
                         msgs.push(ServerMessage::GameStart);
+
+                        // My Grid
+                        let my_grid: Vec<Vec<String>> = player
+                            .grid
+                            .cells
+                            .iter()
+                            .map(|row| {
+                                row.iter()
+                                    .map(|cell| match cell {
+                                        crate::state::CellState::Empty => "empty".to_string(),
+                                        crate::state::CellState::Ship => "ship".to_string(),
+                                        crate::state::CellState::Hit => "hit".to_string(),
+                                        crate::state::CellState::Miss => "miss".to_string(),
+                                    })
+                                    .collect()
+                            })
+                            .collect();
+
+                        // Enemy Grid
+                        let enemy = if is_p1 {
+                            game.player2.as_ref()
+                        } else {
+                            Some(&game.player1)
+                        };
+
+                        let enemy_grid: Vec<Vec<String>> = if let Some(enemy_p) = enemy {
+                            enemy_p
+                                .grid
+                                .cells
+                                .iter()
+                                .map(|row| {
+                                    row.iter()
+                                        .map(|cell| match cell {
+                                            crate::state::CellState::Empty
+                                            | crate::state::CellState::Ship => "empty".to_string(), // Hide ships!
+                                            crate::state::CellState::Hit => "hit".to_string(),
+                                            crate::state::CellState::Miss => "miss".to_string(),
+                                        })
+                                        .collect()
+                                })
+                                .collect()
+                        } else {
+                            // Should not happen if playing
+                            vec![vec!["empty".to_string(); 10]; 10]
+                        };
+
+                        msgs.push(ServerMessage::GridSync {
+                            my_grid,
+                            enemy_grid,
+                        });
                     }
 
                     return msgs;
@@ -304,6 +379,8 @@ async fn handle_client_message(
                             game_id,
                             player_id: pid,
                             difficulty: game.config.difficulty,
+                            max_heat: game.config.heat_threshold,
+                            max_vetoes: game.config.max_vetoes,
                         },
                         ServerMessage::PlayerJoined { player_id: p1_id },
                     ];
@@ -312,6 +389,8 @@ async fn handle_client_message(
                     game_id,
                     player_id: pid,
                     difficulty: game.config.difficulty,
+                    max_heat: game.config.heat_threshold,
+                    max_vetoes: game.config.max_vetoes,
                 }]
             } else {
                 vec![ServerMessage::Error {
@@ -352,21 +431,27 @@ async fn handle_client_message(
             // Check if already placed WITHOUT borrowing mutable yet
             let already_placed = if is_player1 {
                 game.player1.ships_placed
+            } else if let Some(ref p) = game.player2 {
+                p.ships_placed
             } else {
-                game.player2.as_ref().unwrap().ships_placed
+                false
             };
 
             if already_placed {
                 let player = if is_player1 {
                     &game.player1
+                } else if let Some(ref p) = game.player2 {
+                    p
                 } else {
-                    game.player2.as_ref().unwrap()
+                    return vec![ServerMessage::Error {
+                        message: "Opponent left".to_string(),
+                    }];
                 };
                 return vec![
                     ServerMessage::ShipsConfirmed { player_id: pid },
                     ServerMessage::GameUpdate {
                         status: "Ships Placed".to_string(),
-                        your_turn: true,
+                        is_active: true,
                         heat: player.heat,
                         is_locked: player.is_locked,
                         time_remaining_secs: game.config.game_duration_secs,
@@ -376,14 +461,40 @@ async fn handle_client_message(
                 ];
             }
 
+            // ANTI-CHEAT: Validate fleet composition
+            // Standard Battleship fleet: Carrier (5), Battleship (4), Cruiser (3), Submarine (3), Destroyer (2)
+            const VALID_FLEET: [u8; 5] = [5, 4, 3, 3, 2];
+            if ships.len() != 5 {
+                return vec![ServerMessage::Error {
+                    message: format!("Invalid fleet: expected 5 ships, got {}", ships.len()),
+                }];
+            }
+            let mut ship_sizes: Vec<u8> = ships.iter().map(|s| s.size).collect();
+            ship_sizes.sort_unstable();
+            ship_sizes.reverse(); // Sort descending to match VALID_FLEET
+            if ship_sizes != VALID_FLEET {
+                return vec![ServerMessage::Error {
+                    message: "Invalid fleet composition. Ships must be sizes 5, 4, 3, 3, 2"
+                        .to_string(),
+                }];
+            }
+
             // Place ships
             let mut success = true;
             {
                 let player = if is_player1 {
                     &mut game.player1
+                } else if let Some(ref mut p) = game.player2 {
+                    p
                 } else {
-                    game.player2.as_mut().unwrap()
+                    return vec![ServerMessage::Error {
+                        message: "Opponent left".to_string(),
+                    }];
                 };
+
+                // Clear existing state allow retries
+                player.ships.clear();
+                player.grid = crate::state::Grid::new();
 
                 for placement in ships {
                     let ship = Ship {
@@ -442,8 +553,12 @@ async fn handle_client_message(
             // Get player again for response
             let player = if is_player1 {
                 &game.player1
+            } else if let Some(ref p) = game.player2 {
+                p
             } else {
-                game.player2.as_ref().unwrap()
+                return vec![ServerMessage::Error {
+                    message: "Opponent left".to_string(),
+                }];
             };
 
             // Return status based on whether game started
@@ -455,7 +570,7 @@ async fn handle_client_message(
 
             vec![ServerMessage::GameUpdate {
                 status,
-                your_turn: both_ready,
+                is_active: both_ready,
                 heat: player.heat,
                 is_locked: player.is_locked,
                 time_remaining_secs: game.config.game_duration_secs,
@@ -495,7 +610,8 @@ async fn handle_client_message(
 
             let res = if game.player1.id == pid {
                 if let Some(ref mut p2) = game.player2 {
-                    game.player1.fire(p2, x, y, config.heat_threshold)
+                    game.player1
+                        .fire(p2, x, y, config.heat_threshold, &config.veto_penalties)
                 } else {
                     return vec![ServerMessage::Error {
                         message: "Waiting for opponent".to_string(),
@@ -503,8 +619,13 @@ async fn handle_client_message(
                 }
             } else if game.player2.as_ref().map(|p| p.id) == Some(pid) {
                 let p1 = &mut game.player1;
-                let p2 = game.player2.as_mut().unwrap();
-                p2.fire(p1, x, y, config.heat_threshold)
+                if let Some(ref mut p2) = game.player2 {
+                    p2.fire(p1, x, y, config.heat_threshold, &config.veto_penalties)
+                } else {
+                    return vec![ServerMessage::Error {
+                        message: "Opponent missing".to_string(),
+                    }];
+                }
             } else {
                 return vec![ServerMessage::Error {
                     message: "Not in game".to_string(),
@@ -512,10 +633,10 @@ async fn handle_client_message(
             };
 
             match res {
-                Ok(result) => {
+                Ok((result, sunk_this_shot)) => {
                     // Check for victory logic
                     let all_sunk = if game.player1.id == pid {
-                        game.player2.as_ref().map_or(false, |p2| {
+                        game.player2.as_ref().is_some_and(|p2| {
                             p2.grid
                                 .cells
                                 .iter()
@@ -537,22 +658,16 @@ async fn handle_client_message(
 
                     if all_sunk {
                         game.status = GameStatus::Finished;
+                        game.finished_at = Some(std::time::Instant::now());
                     }
 
-                    // Determine if any ship was sunk
-                    let sunk = if game.player1.id == pid {
-                        game.player2
-                            .as_ref()
-                            .map_or(false, |p2| p2.ships.iter().any(|s| s.sunk))
-                    } else {
-                        game.player1.ships.iter().any(|s| s.sunk)
-                    };
+                    // sunk_this_shot now comes from fire() - true only if THIS shot sunk a ship
 
                     let shot_result = ServerMessage::ShotResult {
                         x,
                         y,
                         hit: result == "Hit",
-                        sunk,
+                        sunk: sunk_this_shot,
                         shooter_id: pid,
                     };
 
@@ -565,7 +680,7 @@ async fn handle_client_message(
                     let shooter_locked = if game.player1.id == pid {
                         game.player1.is_locked
                     } else {
-                        game.player2.as_ref().map_or(false, |p| p.is_locked)
+                        game.player2.as_ref().is_some_and(|p| p.is_locked)
                     };
                     if shooter_locked {
                         let _ = game.tx.send(crate::state::GameEvent::Message(
@@ -575,10 +690,23 @@ async fn handle_client_message(
 
                     // If game over (all sunk), broadcast
                     if all_sunk {
+                        // Get stats for the shooter (pid)
+                        let shooter_stats = if game.player1.id == pid {
+                            game.player1.stats.clone()
+                        } else {
+                            game.player2
+                                .as_ref()
+                                .map(|p| p.stats.clone())
+                                .unwrap_or_default()
+                        };
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::GameOver {
                                 winner_id: Some(pid),
                                 reason: "AllShipsSunk".to_string(),
+                                your_shots_hit: shooter_stats.cells_hit,
+                                your_shots_missed: 0,
+                                your_ships_sunk: shooter_stats.ships_sunk,
+                                your_problems_solved: shooter_stats.problems_solved,
                             },
                         ));
                     }
@@ -586,10 +714,23 @@ async fn handle_client_message(
                     // SUDDEN DEATH: First hit wins!
                     if is_sudden_death && result == "Hit" {
                         game.status = GameStatus::Finished;
+                        game.finished_at = Some(std::time::Instant::now());
+                        let shooter_stats = if game.player1.id == pid {
+                            game.player1.stats.clone()
+                        } else {
+                            game.player2
+                                .as_ref()
+                                .map(|p| p.stats.clone())
+                                .unwrap_or_default()
+                        };
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::GameOver {
                                 winner_id: Some(pid),
                                 reason: "SuddenDeath - First hit wins!".to_string(),
+                                your_shots_hit: shooter_stats.cells_hit,
+                                your_shots_missed: 0,
+                                your_ships_sunk: shooter_stats.ships_sunk,
+                                your_problems_solved: shooter_stats.problems_solved,
                             },
                         ));
                     }
@@ -613,8 +754,8 @@ async fn handle_client_message(
                     message: "No player ID".to_string(),
                 }];
             };
-            let games = state.games.read().await;
-            let game = if let Some(g) = games.get(&game_id) {
+            let mut games = state.games.write().await;
+            let game = if let Some(g) = games.get_mut(&game_id) {
                 g
             } else {
                 return vec![ServerMessage::Error {
@@ -623,9 +764,9 @@ async fn handle_client_message(
             };
 
             let player = if game.player1.id == pid {
-                &game.player1
+                &mut game.player1
             } else if game.player2.as_ref().map(|p| p.id) == Some(pid) {
-                if let Some(ref p) = game.player2 {
+                if let Some(ref mut p) = game.player2 {
                     p
                 } else {
                     return vec![ServerMessage::Error {
@@ -638,7 +779,7 @@ async fn handle_client_message(
                 }];
             };
 
-            // CRITICAL: Block solving during active veto - player MUST wait out the timer
+            // CRITICAL: Block solving during active veto
             if player.veto_started_at.is_some() {
                 return vec![ServerMessage::Error {
                     message: "Cannot solve during veto penalty. You must wait for the timer."
@@ -646,10 +787,19 @@ async fn handle_client_message(
                 }];
             }
 
-            // Verify submission with Codeforces
-            // CRITICAL: Drop lock before awaiting external API to avoid blocking other games
+            // RATE LIMIT CHECK: 10 seconds cooldown
+            if let Some(last) = player.last_verification_attempt {
+                if last.elapsed() < std::time::Duration::from_secs(10) {
+                    return vec![ServerMessage::Error {
+                        message: "Please wait 10 seconds before verifying again.".to_string(),
+                    }];
+                }
+            }
+            // Update timestamp
+            player.last_verification_attempt = Some(std::time::Instant::now());
+
             let handle = player.cf_handle.clone();
-            drop(games);
+            drop(games); // Drop lock strictly here
 
             let verify_result = state
                 .cf_client
@@ -663,12 +813,10 @@ async fn handle_client_message(
                     if let Some(game) = games.get_mut(&game_id) {
                         let player = if game.player1.id == pid {
                             &mut game.player1
+                        } else if let Some(ref mut p) = game.player2 {
+                            p
                         } else {
-                            if let Some(ref mut p) = game.player2 {
-                                p
-                            } else {
-                                return vec![];
-                            }
+                            return vec![];
                         };
                         player.unlock_weapons();
                         player.stats.problems_solved += 1;
@@ -688,7 +836,7 @@ async fn handle_client_message(
 
                         vec![ServerMessage::GameUpdate {
                             status: "Weapons Unlocked!".to_string(),
-                            your_turn: true,
+                            is_active: true,
                             heat: player.heat,
                             is_locked: player.is_locked,
                             time_remaining_secs: remaining,
@@ -744,19 +892,30 @@ async fn handle_client_message(
                 }];
             };
 
-            // Check if player has vetoes remaining
-            if player.vetoes_used >= 3 {
+            // Check if player is actually locked - can't use veto if not overheated
+            if !player.is_locked {
+                return vec![ServerMessage::Error {
+                    message: "Cannot use veto - weapons are not locked".to_string(),
+                }];
+            }
+
+            // Check if player has vetoes remaining (use config, not hardcoded 3)
+            if player.vetoes_used >= game.config.max_vetoes {
                 return vec![ServerMessage::Error {
                     message: "No vetoes remaining".to_string(),
                 }];
             }
 
             // Get veto duration based on current usage count (BEFORE incrementing)
-            let veto_durations = [420u64, 600, 900]; // 7, 10, 15 minutes in seconds
-            let duration_secs = veto_durations
-                .get(player.vetoes_used as usize)
-                .copied()
-                .unwrap_or(900);
+            let veto_durations = game.config.veto_penalties;
+            let duration_secs = match veto_durations.get(player.vetoes_used as usize).copied() {
+                Some(d) => d,
+                None => {
+                    return vec![ServerMessage::Error {
+                        message: "Invalid veto configuration".to_string(),
+                    }]
+                }
+            };
 
             // Start veto timer
             player.veto_started_at = Some(std::time::Instant::now());
@@ -773,7 +932,7 @@ async fn handle_client_message(
             // vetoes_remaining is now calculated AFTER incrementing
             vec![ServerMessage::GameUpdate {
                 status: format!("Veto activated. Wait {} minutes.", duration_secs / 60),
-                your_turn: false,
+                is_active: false,
                 heat: player.heat,
                 is_locked: true, // Still locked during veto
                 time_remaining_secs: game_remaining,

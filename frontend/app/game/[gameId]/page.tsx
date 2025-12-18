@@ -2,6 +2,8 @@
 
 import { useEffect, useState, use, useRef } from "react";
 import { useGameSocket } from "@/hooks/useGameSocket";
+import { useSound } from "@/context/SoundContext";
+import { useMusic } from "@/context/MusicContext";
 import { PlacementBoard } from "@/components/game/PlacementBoard";
 import { CombatGrid } from "@/components/game/CombatGrid";
 import { HUD } from "@/components/game/HUD";
@@ -30,18 +32,17 @@ export default function GamePage({ params }: { params: Promise<{ gameId: string 
         let storedPlayerId = localStorage.getItem("battlecp_player_id");
         let storedCfHandle = localStorage.getItem("battlecp_cf_handle");
 
-        // Generate if not found
+        // Generate if not found - redirect to join page instead of anonymous fallback
         if (!storedPlayerId || !storedCfHandle) {
-            storedPlayerId = crypto.randomUUID();
-            storedCfHandle = "anonymous";
-            localStorage.setItem("battlecp_player_id", storedPlayerId);
-            localStorage.setItem("battlecp_cf_handle", storedCfHandle);
+            // No credentials - user needs to go through proper lobby flow
+            window.location.href = `/lobby/join?redirect=${gameId}`;
+            return;
         }
 
         setPlayerId(storedPlayerId);
         setCfHandle(storedCfHandle);
         setHasMounted(true);
-    }, []);
+    }, [gameId]);
 
     // Don't render game content until client-side mount is complete
     if (!hasMounted || !playerId || !cfHandle) {
@@ -79,8 +80,37 @@ function GameContent({
     setMyShips: (ships: ShipPlacement[]) => void;
 }) {
     const { gameState, isConnected, gameNotFound, fire, placeShips, solveCP, veto } = useGameSocket(gameId, playerId, cfHandle);
+    const { playSuccess: playShipsConfirmed, playJoin, playHit, playMiss } = useSound();
 
-    const handleShipsConfirmed = (ships: any[]) => {
+    // Music integration
+    const { setPhase: setMusicPhase } = useMusic();
+
+    // Play join sound when entering lobby phase
+    useEffect(() => {
+        if (gameState.phase === 'lobby') {
+            playJoin();
+        }
+    }, [gameState.phase, playJoin]);
+
+    // Music phase transitions
+    useEffect(() => {
+        const isSuddenDeath = gameState.status?.toLowerCase().includes("sudden death");
+
+        if (gameState.phase === "placement") {
+            setMusicPhase("placement");
+        } else if (gameState.phase === "combat") {
+            if (isSuddenDeath) {
+                setMusicPhase("sudden_death");
+            } else {
+                setMusicPhase("combat");
+            }
+        } else if (gameState.phase === "finished") {
+            const isWinner = gameState.winnerId === playerId;
+            setMusicPhase(isWinner ? "victory" : "defeat");
+        }
+    }, [gameState.phase, gameState.status, gameState.winnerId, playerId, setMusicPhase]);
+
+    const handleShipsConfirmed = (ships: { x: number; y: number; size: number; orientation: string }[]) => {
         // Convert to ShipPlacement format
         const placements: ShipPlacement[] = ships.map(s => ({
             x: s.x,
@@ -90,12 +120,7 @@ function GameContent({
         }));
         setMyShips(placements);
         placeShips(placements);
-    };
-
-    // Dev Tool: Auto Place
-    const handleAutoPlace = (ships: ShipPlacement[]) => {
-        setMyShips(ships);
-        placeShips(ships);
+        playShipsConfirmed();
     };
 
     const handleFire = (x: number, y: number) => {
@@ -110,13 +135,41 @@ function GameContent({
     const shotsHit = gameState.enemyGrid.flat().filter(c => c === "hit").length;
     const shotsMissed = gameState.enemyGrid.flat().filter(c => c === "miss").length;
 
+    // Track previous grid to detect new shots for sound effects
+    const prevEnemyGridRef = useRef<typeof gameState.enemyGrid | null>(null);
+
+    useEffect(() => {
+        if (prevEnemyGridRef.current === null) {
+            // First render, just store
+            prevEnemyGridRef.current = gameState.enemyGrid;
+            return;
+        }
+
+        // Find the new cell that changed
+        for (let y = 0; y < 10; y++) {
+            for (let x = 0; x < 10; x++) {
+                const prev = prevEnemyGridRef.current[y][x];
+                const curr = gameState.enemyGrid[y][x];
+                if (prev === "empty" && curr === "hit") {
+                    playHit();
+                    break;
+                } else if (prev === "empty" && curr === "miss") {
+                    playMiss();
+                    break;
+                }
+            }
+        }
+
+        prevEnemyGridRef.current = gameState.enemyGrid;
+    }, [gameState.enemyGrid, playHit, playMiss]);
+
     // Show error UI if game not found
     if (gameNotFound) {
         return (
             <div className="relative w-full min-h-screen bg-black flex flex-col items-center justify-center">
                 <div className="text-center space-y-4">
                     <h1 className="text-2xl font-bold text-red-500">Game Not Found</h1>
-                    <p className="text-gray-400">This game may have expired or doesn't exist.</p>
+                    <p className="text-gray-400">This game may have expired or does not exist.</p>
                     <a
                         href="/lobby/create"
                         className="inline-block px-6 py-3 bg-primary text-black font-bold rounded hover:bg-primary/80 transition"
@@ -151,6 +204,7 @@ function GameContent({
                     gameTimeRemaining={gameState.gameTimeRemaining}
                     vetoTimeRemaining={gameState.vetoTimeRemaining}
                     vetoesRemaining={gameState.vetoesRemaining}
+                    maxVetoes={gameState.maxVetoes}
                     status={gameState.status}
                     opponentConnected={gameState.opponentConnected}
                 />
@@ -190,8 +244,21 @@ function GameContent({
                         </div>
                         <div className="bg-primary/10 border border-primary/30 rounded-lg px-8 py-4">
                             <span className="text-xs text-zinc-500 block mb-1">GAME CODE</span>
-                            <span className="text-3xl font-mono font-bold text-white tracking-widest">{gameId}</span>
+                            <span className="text-2xl font-mono font-bold text-white tracking-wide">{gameId}</span>
                         </div>
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(gameId);
+                                import("sonner").then(({ toast }) => toast.success("Code copied to clipboard!"));
+                            }}
+                            className="flex items-center gap-2 px-6 py-3 bg-primary/20 border border-primary/50 rounded-lg hover:bg-primary/30 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span className="font-mono">COPY CODE</span>
+                        </button>
                     </div>
                 )}
 
@@ -238,6 +305,7 @@ function GameContent({
                         isLocked={gameState.isLocked}
                         difficulty={gameState.difficulty}
                         vetoesRemaining={gameState.vetoesRemaining}
+                        maxVetoes={gameState.maxVetoes}
                         vetoTimeRemaining={gameState.vetoTimeRemaining}
                         onSolve={solveCP}
                         onVeto={veto}

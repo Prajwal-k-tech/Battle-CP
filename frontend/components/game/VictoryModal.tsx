@@ -27,7 +27,12 @@ const reasonLabels: Record<string, string> = {
     Disconnect: "Opponent Disconnected",
 };
 
+import { useSound } from "@/context/SoundContext";
+import Squares from "@/components/ui/Squares";
+
 export function VictoryModal({ isOpen, isWinner, reason, stats }: VictoryModalProps) {
+    const { playShipPlace, playJoin } = useSound();
+
     if (!isOpen) return null;
 
     return (
@@ -36,12 +41,24 @@ export function VictoryModal({ isOpen, isWinner, reason, stats }: VictoryModalPr
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-100 flex items-center justify-center bg-black/80 backdrop-blur-md"
+                className="fixed inset-0 z-50 flex items-center justify-center"
             >
+                {/* Background with Squares animation */}
+                <div className="absolute inset-0 z-0">
+                    <Squares
+                        speed={0.3}
+                        squareSize={50}
+                        direction="diagonal"
+                        borderColor={isWinner ? "#0a2540" : "#3d1a0a"}
+                        hoverFillColor={isWinner ? "#1e5080" : "#8b3a1a"}
+                    />
+                    <div className="absolute inset-0 bg-black/70" />
+                </div>
                 <motion.div
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ type: "spring", duration: 0.5 }}
+                    className="relative z-10"
                 >
                     <Card className={cn(
                         "w-[400px] border-2 bg-black/90 backdrop-blur-xl",
@@ -100,17 +117,18 @@ export function VictoryModal({ isOpen, isWinner, reason, stats }: VictoryModalPr
                             {/* Actions */}
                             <div className="flex gap-3 pt-4">
                                 <Link href="/" className="flex-1">
-                                    <Button variant="outline" className="w-full border-white/10">
+                                    <Button variant="outline" className="w-full border-white/10" onClick={() => playShipPlace()}>
                                         <Home className="w-4 h-4 mr-2" />
                                         Home
                                     </Button>
                                 </Link>
-                                <Link href="/" className="flex-1">
+                                <Link href="/lobby/create" className="flex-1">
                                     <Button
                                         className={cn(
                                             "w-full",
                                             isWinner ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
                                         )}
+                                        onClick={() => playJoin()}
                                     >
                                         <RotateCcw className="w-4 h-4 mr-2" />
                                         Play Again

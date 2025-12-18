@@ -2,8 +2,6 @@
 
 import React, { useRef, useEffect } from "react";
 
-type CanvasStrokeStyle = string | CanvasGradient | CanvasPattern;
-
 interface GridOffset {
     x: number;
     y: number;
@@ -160,4 +158,4 @@ const Squares: React.FC<SquaresProps> = ({
     );
 };
 
-export default Squares;
+export default React.memo(Squares);

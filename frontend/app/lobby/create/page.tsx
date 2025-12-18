@@ -4,7 +4,7 @@ import { MemoizedFaultyTerminal } from "@/components/ui/FaultyTerminal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ArrowRight, Loader2, Copy, Terminal, User, Settings as SettingsIcon, Check, X } from "lucide-react";
+import { ArrowRight, Loader2, Copy, Terminal, User, Settings as SettingsIcon } from "lucide-react";
 import {
     Dialog,
     DialogContent,
@@ -23,12 +23,14 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 // Stable constant for FaultyTerminal to prevent re-renders
 const GRID_MUL: [number, number] = [2, 1];
 
+import { useSound } from "@/context/SoundContext";
+
 export default function CreateGamePage() {
     const router = useRouter();
     const [cfHandle, setCfHandle] = useState("");
     const [isCreating, setIsCreating] = useState(false);
+    const { playJoin, playSuccess, playShipPlace } = useSound();
     const [gameId, setGameId] = useState<string | null>(null);
-    const [playerId, setPlayerId] = useState<string | null>(null);
 
     // Game Settings
     const [difficulty, setDifficulty] = useState(800);
@@ -71,8 +73,10 @@ export default function CreateGamePage() {
             localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
 
             setGameId(newGameId);
-            setPlayerId(newPlayerId);
             toast.success("Uplink Established", { description: `Lobby ID: ${newGameId}` });
+
+            // Auto-redirect to game page - P1 enters immediately
+            router.push(`/game/${newGameId}`);
         } catch (error) {
             console.error("Create game error:", error);
 
@@ -90,8 +94,10 @@ export default function CreateGamePage() {
             localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
 
             setGameId(fallbackGameId);
-            setPlayerId(fallbackPlayerId);
             toast.warning("Using offline mode (backend unavailable)");
+
+            // Auto-redirect even in fallback mode
+            router.push(`/game/${fallbackGameId}`);
         } finally {
             setIsCreating(false);
         }
@@ -165,7 +171,7 @@ export default function CreateGamePage() {
                                         <label className="text-sm text-zinc-400 font-mono">Combat Protocol</label>
                                         <Dialog>
                                             <DialogTrigger asChild>
-                                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-emerald-500/20">
+                                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-emerald-500/20" onClick={() => playShipPlace()}>
                                                     <SettingsIcon className="w-3 h-3 text-emerald-400" />
                                                 </Button>
                                             </DialogTrigger>
@@ -255,7 +261,7 @@ export default function CreateGamePage() {
 
                                 <Button
                                     className="w-full h-12 text-lg bg-emerald-600 hover:bg-emerald-700 font-arcade tracking-wider"
-                                    onClick={handleCreate}
+                                    onClick={() => { playJoin(); handleCreate(); }}
                                     disabled={isCreating || !cfHandle.trim()}
                                 >
                                     {isCreating ? (
@@ -281,14 +287,14 @@ export default function CreateGamePage() {
                                     <Button
                                         variant="outline"
                                         className="flex-1 border-white/10 hover:bg-white/5 font-arcade text-xs"
-                                        onClick={copyToClipboard}
+                                        onClick={() => { playShipPlace(); copyToClipboard(); }}
                                     >
                                         <Copy className="w-3 h-3 mr-2" /> COPY ID
                                     </Button>
                                     <Button
                                         variant="default"
                                         className="flex-1 bg-emerald-600 hover:bg-emerald-700 font-arcade text-xs"
-                                        onClick={enterLobby}
+                                        onClick={() => { playSuccess(); enterLobby(); }}
                                     >
                                         ENTER <ArrowRight className="w-3 h-3 ml-2" />
                                     </Button>

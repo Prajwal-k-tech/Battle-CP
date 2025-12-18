@@ -11,12 +11,17 @@ impl Game {
             player2: None,
             status: GameStatus::Waiting,
             config,
+            created_at: std::time::Instant::now(),
             game_started_at: None,
+            finished_at: None,
             tx,
         }
     }
 
     pub fn join(&mut self, player2_id: Uuid, player2_handle: String) -> Result<(), &'static str> {
+        if player2_id == self.player1.id {
+            return Err("Cannot play against yourself");
+        }
         if self.player2.is_some() {
             return Err("Game is full");
         }
@@ -78,6 +83,7 @@ impl Player {
             stats: PlayerStats::default(),
             ships_placed: false,
             veto_started_at: None,
+            last_verification_attempt: None,
         }
     }
 
@@ -87,20 +93,20 @@ impl Player {
         x: usize,
         y: usize,
         heat_threshold: u32,
-    ) -> Result<String, &'static str> {
+        veto_penalties: &[u64; 3],
+    ) -> Result<(String, bool), &'static str> {
         if self.is_locked {
             // Check veto timer
             if let Some(start) = self.veto_started_at {
-                let veto_durations = [420, 600, 900];
-                let required_secs = veto_durations
-                    .get(self.vetoes_used as usize)
+                let required_secs = veto_penalties
+                    .get(self.vetoes_used.saturating_sub(1) as usize)
                     .copied()
                     .unwrap_or(900);
                 if start.elapsed() >= std::time::Duration::from_secs(required_secs) {
                     // Timer expired, unlock!
                     self.is_locked = false;
                     self.heat = 0;
-                    self.vetoes_used += 1;
+                    // NOTE: vetoes_used already incremented in ws.rs when Veto was activated
                     self.veto_started_at = None;
                 } else {
                     let _remaining = required_secs.saturating_sub(start.elapsed().as_secs());
@@ -114,6 +120,7 @@ impl Player {
         }
 
         // Process shot on grid
+        let mut sunk_this_shot = false;
         let result = opponent.grid.receive_shot(x, y);
 
         // Update stats
@@ -131,9 +138,10 @@ impl Player {
 
                 if is_hit {
                     ship.hits += 1;
-                    if ship.hits >= ship.size {
+                    if ship.hits >= ship.size && !ship.sunk {
                         ship.sunk = true;
                         self.stats.ships_sunk += 1; // Shooter gets credit
+                        sunk_this_shot = true;
                     }
                     break;
                 }
@@ -150,7 +158,7 @@ impl Player {
             self.is_locked = true;
         }
 
-        Ok(result)
+        Ok((result, sunk_this_shot))
     }
 
     pub fn place_ship(
@@ -193,6 +201,12 @@ impl Player {
     pub fn unlock_weapons(&mut self) {
         self.is_locked = false;
         self.heat = 0;
+    }
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

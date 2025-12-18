@@ -279,6 +279,8 @@ export default function FaultyTerminal({
 
     const ditherValue = useMemo(() => (typeof dither === 'boolean' ? (dither ? 1 : 0) : dither), [dither]);
 
+    const initializationRef = useRef(false);
+
     const handleMouseMove = useCallback((e: MouseEvent) => {
         const ctn = containerRef.current;
         if (!ctn) return;
@@ -288,9 +290,12 @@ export default function FaultyTerminal({
         mouseRef.current = { x, y };
     }, []);
 
+    // 1. Initialization Effect - Runs once on mount
     useEffect(() => {
         const ctn = containerRef.current;
-        if (!ctn) return;
+        if (!ctn || initializationRef.current) return;
+
+        initializationRef.current = true;
 
         const renderer = new Renderer({ dpr });
         rendererRef.current = renderer;
@@ -308,7 +313,6 @@ export default function FaultyTerminal({
                     value: new Color(gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height)
                 },
                 uScale: { value: scale },
-
                 uGridMul: { value: new Float32Array(gridMul) },
                 uDigitSize: { value: digitSize },
                 uScanlineIntensity: { value: scanlineIntensity },
@@ -335,12 +339,18 @@ export default function FaultyTerminal({
 
         function resize() {
             if (!ctn || !renderer) return;
-            renderer.setSize(ctn.offsetWidth, ctn.offsetHeight);
-            program.uniforms.iResolution.value = new Color(
-                gl.canvas.width,
-                gl.canvas.height,
-                gl.canvas.width / gl.canvas.height
-            );
+            const width = ctn.offsetWidth;
+            const height = ctn.offsetHeight;
+            renderer.setSize(width, height);
+
+            // Should update uniform if program exists
+            if (programRef.current) {
+                programRef.current.uniforms.iResolution.value = new Color(
+                    gl.canvas.width,
+                    gl.canvas.height,
+                    gl.canvas.width / gl.canvas.height
+                );
+            }
         }
 
         const resizeObserver = new ResizeObserver(() => resize());
@@ -354,19 +364,22 @@ export default function FaultyTerminal({
                 loadAnimationStartRef.current = t;
             }
 
+            const prog = programRef.current;
+            if (!prog) return;
+
             if (!pause) {
                 const elapsed = (t * 0.001 + timeOffsetRef.current) * timeScale;
-                program.uniforms.iTime.value = elapsed;
+                prog.uniforms.iTime.value = elapsed;
                 frozenTimeRef.current = elapsed;
             } else {
-                program.uniforms.iTime.value = frozenTimeRef.current;
+                prog.uniforms.iTime.value = frozenTimeRef.current;
             }
 
             if (pageLoadAnimation && loadAnimationStartRef.current > 0) {
                 const animationDuration = 2000;
                 const animationElapsed = t - loadAnimationStartRef.current;
                 const progress = Math.min(animationElapsed / animationDuration, 1);
-                program.uniforms.uPageLoadProgress.value = progress;
+                prog.uniforms.uPageLoadProgress.value = progress;
             }
 
             if (mouseReact) {
@@ -376,9 +389,11 @@ export default function FaultyTerminal({
                 smoothMouse.x += (mouse.x - smoothMouse.x) * dampingFactor;
                 smoothMouse.y += (mouse.y - smoothMouse.y) * dampingFactor;
 
-                const mouseUniform = program.uniforms.uMouse.value as Float32Array;
-                mouseUniform[0] = smoothMouse.x;
-                mouseUniform[1] = smoothMouse.y;
+                const mouseUniform = prog.uniforms.uMouse.value as Float32Array;
+                if (mouseUniform) {
+                    mouseUniform[0] = smoothMouse.x;
+                    mouseUniform[1] = smoothMouse.y;
+                }
             }
 
             renderer.render({ scene: mesh });
@@ -388,19 +403,41 @@ export default function FaultyTerminal({
 
         if (mouseReact) ctn.addEventListener('mousemove', handleMouseMove);
 
+        // Cleanup
         return () => {
             cancelAnimationFrame(rafRef.current);
             resizeObserver.disconnect();
             if (mouseReact) ctn.removeEventListener('mousemove', handleMouseMove);
-            if (gl.canvas.parentElement === ctn) ctn.removeChild(gl.canvas);
+            if (gl.canvas.parentElement === ctn) {
+                ctn.removeChild(gl.canvas);
+            }
             gl.getExtension('WEBGL_lose_context')?.loseContext();
-            loadAnimationStartRef.current = 0;
-            timeOffsetRef.current = Math.random() * 100;
+            initializationRef.current = false;
         };
+    }, []); // Empty dependency array - RUN ONCE
+
+    // 2. Uniform Update Effect - Runs when props change
+    useEffect(() => {
+        const program = programRef.current;
+        if (!program) return;
+
+        program.uniforms.uScale.value = scale;
+        program.uniforms.uGridMul.value = new Float32Array(gridMul);
+        program.uniforms.uDigitSize.value = digitSize;
+        program.uniforms.uScanlineIntensity.value = scanlineIntensity;
+        program.uniforms.uGlitchAmount.value = glitchAmount;
+        program.uniforms.uFlickerAmount.value = flickerAmount;
+        program.uniforms.uNoiseAmp.value = noiseAmp;
+        program.uniforms.uChromaticAberration.value = chromaticAberration;
+        program.uniforms.uDither.value = ditherValue;
+        program.uniforms.uCurvature.value = curvature;
+        program.uniforms.uTint.value = new Color(tintVec[0], tintVec[1], tintVec[2]);
+        program.uniforms.uMouseStrength.value = mouseStrength;
+        program.uniforms.uUseMouse.value = mouseReact ? 1 : 0;
+        program.uniforms.uUsePageLoadAnimation.value = pageLoadAnimation ? 1 : 0;
+        program.uniforms.uBrightness.value = brightness;
+        // iTime, uMouse, uPageLoadProgress are updated in the loop
     }, [
-        dpr,
-        pause,
-        timeScale,
         scale,
         gridMul,
         digitSize,
@@ -412,11 +449,10 @@ export default function FaultyTerminal({
         ditherValue,
         curvature,
         tintVec,
-        mouseReact,
         mouseStrength,
+        mouseReact,
         pageLoadAnimation,
-        brightness,
-        handleMouseMove
+        brightness
     ]);
 
     return <div ref={containerRef} className={`faulty-terminal-container ${className}`} style={style} {...rest} />;

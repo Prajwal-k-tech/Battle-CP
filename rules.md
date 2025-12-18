@@ -14,18 +14,19 @@ Destroy the enemy fleet before time runs out. If time expires, the player with t
     - If you reach **7 Heat**, your weapons **OVERHEAT**.
     - You CANNOT fire while overheated.
 - **Cooling Down:**
-    - **Passive:** Heat decays by 1 every second.
     - **Active:** Solve a Codeforces problem to instantly flush all heat.
+    - **Veto:** Use a Veto to accept a penalty time-out, after which your weapon resets.
 
 ## 4. The Veto Mechanic
 - You have **3 Vetoes**.
-- If you are in a bad spot or need a strategic pause, you can activate a **VETO**.
-- **Effect:** The game state locks. No one can fire.
-- **To Unlock:** You MUST solve the assigned Codeforces problem.
-- **Penalty:** If you fail to solve it within the time limit (7-15 mins), your weapons remain locked while your opponent is free to fire.
+- **Purpose:** If you cannot solve the assigned problem, use a Veto to skip it.
+- **Effect:** Your weapons remain **LOCKED** for a penalty duration (7, 10, or 15 minutes).
+- **Game State:** The game continues! Your opponent is free to fire at you while you wait out your penalty.
+- **After Penalty:** Your weapons unlock and heat resets to 0.
 
 ## 5. Tie-Breakers
-If the game timer (e.g., 1 minute) ends:
+If the game timer ends:
 1. **Primary:** Most ships remaining wins.
-2. **Secondary:** If ships are equal, most Codeforces problems solved wins.
-3. **Tertiary:** Sudden Death (Next hit wins).
+2. **Secondary:** Most cells hit on enemy grid wins.
+3. **Tertiary:** Most Codeforces problems solved wins.
+4. **Final:** Sudden Death (Next hit wins).
