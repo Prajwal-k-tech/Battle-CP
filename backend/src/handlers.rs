@@ -19,7 +19,7 @@ pub async fn create_game(
 ) -> (StatusCode, Json<Value>) {
     let handle = payload.cf_handle.trim();
 
-    // Validate CF handle exists
+    // Validate CF handle exists (fail closed for security)
     match state.cf_client.verify_user_exists(handle).await {
         Ok(true) => {} // User exists, continue
         Ok(false) => {
@@ -29,8 +29,14 @@ pub async fn create_game(
             );
         }
         Err(e) => {
-            // Log error but don't block game creation (CF API might be down)
-            tracing::warn!("CF validation failed: {}", e);
+            // Fail closed: reject if we can't verify (CF API might be down)
+            tracing::warn!("CF validation failed, rejecting game creation: {}", e);
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(
+                    json!({ "error": "Unable to verify Codeforces handle. Please try again later." }),
+                ),
+            );
         }
     }
 

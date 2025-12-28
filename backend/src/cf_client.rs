@@ -60,7 +60,11 @@ impl Default for CFClient {
 impl CFClient {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            // 15 second timeout to prevent hanging if CF is slow/down
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
             cache: Arc::new(Mutex::new(HashMap::new())),
             user_cache: Arc::new(Mutex::new(HashMap::new())),
         }

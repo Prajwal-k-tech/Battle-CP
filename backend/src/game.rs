@@ -170,11 +170,18 @@ impl Player {
         y: usize,
         vertical: bool,
     ) -> Result<(), &'static str> {
-        // Validation logic
-        if x + (if !vertical { ship.size as usize } else { 0 }) > 10
-            || y + (if vertical { ship.size as usize } else { 0 }) > 10
-        {
-            return Err("Ship out of bounds");
+        // Validation logic - check BOTH start position and ship end position
+        // Grid is 10x10, valid indices are 0-9
+        if x >= 10 || y >= 10 {
+            return Err("Ship starting position out of bounds");
+        }
+
+        // Check ship doesn't extend beyond grid
+        let end_x = if vertical { x } else { x + ship.size as usize };
+        let end_y = if vertical { y + ship.size as usize } else { y };
+
+        if end_x > 10 || end_y > 10 {
+            return Err("Ship extends beyond grid boundary");
         }
 
         // Check for overlap

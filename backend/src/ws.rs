@@ -707,7 +707,7 @@ async fn handle_client_message(
                     };
                     if shooter_locked {
                         let _ = game.tx.send(crate::state::GameEvent::Message(
-                            ServerMessage::WeaponsLocked,
+                            ServerMessage::WeaponsLocked { player_id: pid },
                         ));
                     }
 
@@ -847,6 +847,7 @@ async fn handle_client_message(
                         // Broadcast WeaponsUnlocked
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::WeaponsUnlocked {
+                                player_id: pid,
                                 reason: "solved".to_string(),
                             },
                         ));

@@ -63,9 +63,12 @@ pub enum ServerMessage {
         sunk: bool,
         shooter_id: Uuid,
     },
-    WeaponsLocked,
+    WeaponsLocked {
+        player_id: Uuid, // So frontend can filter by player
+    },
     WeaponsUnlocked {
-        reason: String, // "solved" or "veto_expired"
+        player_id: Uuid, // So frontend can filter by player
+        reason: String,  // "solved" or "veto_expired"
     },
 
     // Game End

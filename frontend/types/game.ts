@@ -105,8 +105,8 @@ export type ServerMessage =
     // Combat
     | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number }
     | { type: "ShotResult"; x: number; y: number; hit: boolean; sunk: boolean; shooter_id: string }
-    | { type: "WeaponsLocked" }
-    | { type: "WeaponsUnlocked"; reason: string } // "solved" or "veto_expired"
+    | { type: "WeaponsLocked"; player_id: string }
+    | { type: "WeaponsUnlocked"; player_id: string; reason: string } // "solved" or "veto_expired"
 
     // End
     | { type: "GameOver"; winner_id: string | null; reason: string; your_shots_hit: number; your_shots_missed: number; your_ships_sunk: number; your_problems_solved: number }

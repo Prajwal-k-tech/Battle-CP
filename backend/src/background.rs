@@ -28,6 +28,7 @@ pub async fn start_global_ticker(state: AppState) {
                             let _ =
                                 game.tx
                                     .send(GameEvent::Message(ServerMessage::WeaponsUnlocked {
+                                        player_id: game.player1.id,
                                         reason: "veto_expired".to_string(),
                                     }));
                         }
@@ -47,6 +48,7 @@ pub async fn start_global_ticker(state: AppState) {
                                 p2.veto_started_at = None;
                                 let _ = game.tx.send(GameEvent::Message(
                                     ServerMessage::WeaponsUnlocked {
+                                        player_id: p2.id,
                                         reason: "veto_expired".to_string(),
                                     },
                                 ));
@@ -122,19 +124,26 @@ pub async fn start_global_ticker(state: AppState) {
             }
         }
 
-        // CLEANUP: Remove games that finished more than 5 minutes ago OR are waiting > 30 mins
+        // CLEANUP: Remove games that:
+        // - Finished more than 5 minutes ago
+        // - Are waiting > 30 mins
+        // - Are placing ships > 30 mins (player joined but never placed)
         let finished_cleanup_threshold = std::time::Duration::from_secs(300); // 5 minutes after finish
         let waiting_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if waiting
+        let placing_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if placing ships
 
         games.retain(|_id, game| {
             if let Some(finished) = game.finished_at {
                 // If finished, keep only if within threshold
                 finished.elapsed() < finished_cleanup_threshold
             } else if game.status == GameStatus::Waiting {
-                // If waiting, keep only if within threshold
+                // If waiting for P2, keep only if within threshold
                 game.created_at.elapsed() < waiting_cleanup_threshold
+            } else if game.status == GameStatus::PlacingShips {
+                // If stuck in placement phase, clean up after threshold
+                game.created_at.elapsed() < placing_cleanup_threshold
             } else {
-                // Keep active/playing games
+                // Keep active/playing games (Playing, SuddenDeath)
                 true
             }
         });
