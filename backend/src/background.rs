@@ -75,7 +75,7 @@ pub async fn start_global_ticker(state: AppState) {
                                     reason: "Timeout - More ships remaining".to_string(),
                                     // Stats for player1 (winner)
                                     your_shots_hit: game.player1.stats.cells_hit,
-                                    your_shots_missed: 0, // TODO: Track misses
+                                    your_shots_missed: game.player1.stats.cells_missed,
                                     your_ships_sunk: game.player1.stats.ships_sunk,
                                     your_problems_solved: game.player1.stats.problems_solved,
                                 }));
@@ -92,7 +92,7 @@ pub async fn start_global_ticker(state: AppState) {
                                     winner_id: game.player2.as_ref().map(|p| p.id),
                                     reason: "Timeout - More ships remaining".to_string(),
                                     your_shots_hit: p2_stats.cells_hit,
-                                    your_shots_missed: 0,
+                                    your_shots_missed: p2_stats.cells_missed,
                                     your_ships_sunk: p2_stats.ships_sunk,
                                     your_problems_solved: p2_stats.problems_solved,
                                 }));

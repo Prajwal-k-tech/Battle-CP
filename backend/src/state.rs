@@ -58,6 +58,7 @@ impl Default for GameConfig {
 pub struct PlayerStats {
     pub ships_sunk: u32,
     pub cells_hit: u32,
+    pub cells_missed: u32,
     pub problems_solved: u32,
 }
 

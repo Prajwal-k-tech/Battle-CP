@@ -146,6 +146,8 @@ impl Player {
                     break;
                 }
             }
+        } else if result == "Miss" {
+            self.stats.cells_missed += 1;
         }
 
         // Heat Logic: Every valid shot adds +1 heat

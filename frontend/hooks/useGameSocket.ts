@@ -177,7 +177,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     isLocked: true,
                     status: "WEAPONS LOCKED - Solve to unlock",
                 }));
-                toast.warning("Weapons overheated! Solve a problem to unlock.");
+                toast.warning("Weapons overheated! Solve a problem to unlock.", { id: "weapons-locked" });
                 break;
 
             case "WeaponsUnlocked":
@@ -189,7 +189,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     // Only track problems solved when actually solved (not veto expiry)
                     problemsSolved: msg.reason === "solved" ? prev.problemsSolved + 1 : prev.problemsSolved,
                 }));
-                toast.success(msg.reason === "solved" ? "Problem solved! Weapons unlocked!" : "Veto expired! Weapons unlocked!");
+                toast.success(msg.reason === "solved" ? "Problem solved! Weapons unlocked!" : "Veto expired! Weapons unlocked!", { id: "weapons-unlocked" });
                 break;
 
             case "GameOver":

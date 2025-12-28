@@ -72,10 +72,10 @@ export default function CreateGamePage() {
             localStorage.setItem("battlecp_player_id", newPlayerId);
             localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
 
-            setGameId(newGameId);
             toast.success("Uplink Established", { description: `Lobby ID: ${newGameId}` });
 
             // Auto-redirect to game page - P1 enters immediately
+            // Don't set gameId state - it causes a flash of the old UI before redirect
             router.push(`/game/${newGameId}`);
         } catch (error) {
             console.error("Create game error:", error);
@@ -93,10 +93,10 @@ export default function CreateGamePage() {
             localStorage.setItem("battlecp_player_id", fallbackPlayerId);
             localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
 
-            setGameId(fallbackGameId);
             toast.warning("Using offline mode (backend unavailable)");
 
             // Auto-redirect even in fallback mode
+            // Don't set gameId state - it causes a flash of the old UI before redirect
             router.push(`/game/${fallbackGameId}`);
         } finally {
             setIsCreating(false);

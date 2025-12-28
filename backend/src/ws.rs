@@ -352,6 +352,19 @@ async fn handle_client_message(
                     // P2 is joining - get P1's ID before joining
                     let p1_id = game.player1.id;
 
+                    // Verify CF Handle exists immediately (Security Fix)
+                    let handle_exists = state
+                        .cf_client
+                        .verify_user_exists(&cf_handle)
+                        .await
+                        .unwrap_or(false); // Fail closed if API error
+
+                    if !handle_exists {
+                        return vec![ServerMessage::Error {
+                            message: format!("Codeforces handle '{}' not found", cf_handle),
+                        }];
+                    }
+
                     if let Err(e) = game.join(pid, cf_handle) {
                         return vec![ServerMessage::Error {
                             message: e.to_string(),
@@ -704,7 +717,7 @@ async fn handle_client_message(
                                 winner_id: Some(pid),
                                 reason: "AllShipsSunk".to_string(),
                                 your_shots_hit: shooter_stats.cells_hit,
-                                your_shots_missed: 0,
+                                your_shots_missed: shooter_stats.cells_missed,
                                 your_ships_sunk: shooter_stats.ships_sunk,
                                 your_problems_solved: shooter_stats.problems_solved,
                             },
@@ -728,7 +741,7 @@ async fn handle_client_message(
                                 winner_id: Some(pid),
                                 reason: "SuddenDeath - First hit wins!".to_string(),
                                 your_shots_hit: shooter_stats.cells_hit,
-                                your_shots_missed: 0,
+                                your_shots_missed: shooter_stats.cells_missed,
                                 your_ships_sunk: shooter_stats.ships_sunk,
                                 your_problems_solved: shooter_stats.problems_solved,
                             },
