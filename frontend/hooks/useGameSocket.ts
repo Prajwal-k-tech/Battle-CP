@@ -174,29 +174,33 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
 
             case "WeaponsLocked":
                 // Only apply to the player this message is for
-                if (msg.player_id === gameState.playerId) {
-                    setGameState(prev => ({
+                // Use functional update to access latest playerId (avoid stale closure)
+                setGameState(prev => {
+                    if (msg.player_id !== prev.playerId) return prev;
+                    toast.warning("Weapons overheated! Solve a problem to unlock.", { id: "weapons-locked" });
+                    return {
                         ...prev,
                         isLocked: true,
                         status: "WEAPONS LOCKED - Solve to unlock",
-                    }));
-                    toast.warning("Weapons overheated! Solve a problem to unlock.", { id: "weapons-locked" });
-                }
+                    };
+                });
                 break;
 
             case "WeaponsUnlocked":
                 // Only apply to the player this message is for
-                if (msg.player_id === gameState.playerId) {
-                    setGameState(prev => ({
+                // Use functional update to access latest playerId (avoid stale closure)
+                setGameState(prev => {
+                    if (msg.player_id !== prev.playerId) return prev;
+                    toast.success(msg.reason === "solved" ? "Problem solved! Weapons unlocked!" : "Veto expired! Weapons unlocked!", { id: "weapons-unlocked" });
+                    return {
                         ...prev,
                         isLocked: false,
                         heat: 0,
                         status: "Weapons unlocked",
                         // Only track problems solved when actually solved (not veto expiry)
                         problemsSolved: msg.reason === "solved" ? prev.problemsSolved + 1 : prev.problemsSolved,
-                    }));
-                    toast.success(msg.reason === "solved" ? "Problem solved! Weapons unlocked!" : "Veto expired! Weapons unlocked!", { id: "weapons-unlocked" });
-                }
+                    };
+                });
                 break;
 
             case "GameOver":
