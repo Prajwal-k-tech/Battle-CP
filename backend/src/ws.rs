@@ -440,6 +440,16 @@ async fn handle_client_message(
                 }];
             }
 
+            // SECURITY: Prevent ship placement after game has started
+            if game.status == GameStatus::Playing
+                || game.status == GameStatus::SuddenDeath
+                || game.status == GameStatus::Finished
+            {
+                return vec![ServerMessage::Error {
+                    message: "Cannot place ships after game has started".to_string(),
+                }];
+            }
+
             // IDEMPOTENCE CHECK
             // Check if already placed WITHOUT borrowing mutable yet
             let already_placed = if is_player1 {

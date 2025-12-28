@@ -18,6 +18,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
     const wsRef = useRef<WebSocket | null>(null);
     const isConnecting = useRef(false); // Guard against double connections
     const reconnectAttempts = useRef(0);
+    const shouldStopReconnect = useRef(false); // Prevent reconnection when game not found
     const maxReconnectAttempts = 5;
 
     // Handle incoming server messages
@@ -214,6 +215,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 // If game not found or ended, set flag to prevent reconnection
                 if (msg.message.includes("Game not found") || msg.message.includes("not found") || msg.message.includes("already ended")) {
                     setGameNotFound(true);
+                    shouldStopReconnect.current = true; // Prevent reconnection attempts
                     toast.error("Game not found or has ended. Please create a new game.");
                 } else if (msg.message.includes("Submission not accepted") || msg.message.includes("No accepted submission")) {
                     toast.error("No accepted submission found. Solve the problem on Codeforces first!");
@@ -277,14 +279,14 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 setIsConnected(false);
                 wsRef.current = null;
 
-                // Attempt reconnect if not intentional close and game exists
-                // Don't reconnect if game was not found
-                if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
-                    // Check if we should stop reconnecting
+                // Attempt reconnect if not intentional close, game exists, and not told to stop
+                if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts && !shouldStopReconnect.current) {
                     reconnectAttempts.current++;
                     const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
                     console.log(`[WS] Reconnecting in ${delay}ms... (attempt ${reconnectAttempts.current})`);
                     setTimeout(connect, delay);
+                } else if (shouldStopReconnect.current) {
+                    console.log("[WS] Not reconnecting - game not found or ended");
                 }
             };
 
