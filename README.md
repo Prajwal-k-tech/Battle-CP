@@ -1,33 +1,16 @@
 # Battle CP
+<img width="1920" height="955" alt="image" src="https://github.com/user-attachments/assets/4f4c59cb-ec5a-4335-b8ce-5f442fa0422c" />
 
-**Real-time multiplayer naval strategy meets algorithmic problem solving.**
 
-Battle CP fuses classic Battleship mechanics with competitive programming. Players deploy fleets, fire artillery, and must solve real Codeforces problems to unlock their systems when they overheat or to veto incoming damage.
+## Running instructions
 
-![Lobby Interface](https://via.placeholder.com/800x400?text=Battle+CP+Screenshot)
-
-## Core Features
-
-- **Hybrid Warfare:** Strategy deciding positioning + Speed deciding algorithm solving.
-- **Real-Time Sync:** 1Hz state synchronization via Rust WebSockets.
-- **Competitive Integrity:** Integration with Codeforces API for live problem verification.
-- **Custom Game Modes:** Supports 1-minute blitz rounds to 45-minute marathons.
-- **Reactive UI:** Built with Next.js and Tailwind for immediate visual feedback.
-
-## Tech Stack
-
-- **Backend:** Rugged Rust server using `Axum` and `Tokio` for high-concurrency WebSocket handling.
-- **Frontend:** Next.js 14 (TypeScript), Tailwind CSS, Framer Motion.
-- **State:** In-memory `RwLock` protected game states for <5ms latency.
-
-## Getting Started
-
-### Prerequisites
+### Make sure you have:
 - Node.js 18+
 - Rust 1.75+
 - A [Codeforces](https://codeforces.com) account.
 
 ### Development
+To get the front end running 
 
 1. **Frontend:**
    ```bash
@@ -35,6 +18,7 @@ Battle CP fuses classic Battleship mechanics with competitive programming. Playe
    npm install
    npm run dev
    ```
+To get the backend working
 
 2. **Backend:**
    ```bash
@@ -42,8 +26,7 @@ Battle CP fuses classic Battleship mechanics with competitive programming. Playe
    cargo run
    ```
 
-3. Open `http://localhost:3000` (or configured port).
+3. Open `http://localhost:3000` (mostly)
 
-## Documentation
-
-- [**Game Rules**](rules.md): Detailed mechanics on Heat, Vetoes, and Tiebreakers.
+Take a look at 
+- [**Game Rules**](rules.md): For the rules
