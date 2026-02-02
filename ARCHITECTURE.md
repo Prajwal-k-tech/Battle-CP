@@ -271,51 +271,6 @@ NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 NEXT_PUBLIC_WS_URL=wss://api.yourdomain.com
 ```
 
-### Local Development
-
-```bash
-# Terminal 1: Backend
-cd backend && cargo run
-
-# Terminal 2: Frontend
-cd frontend && npm run dev
-```
-
-### Production Build
-
-```bash
-# Backend
-cargo build --release
-./target/release/backend
-
-# Frontend
-npm run build
-npm start
-```
-
----
-
-## Audit Summary
-
-This codebase has been comprehensively audited with **10 bugs fixed**:
-
-### Critical
-1. ✅ `place_ship()` bounds check - x=10 or y=10 would panic
-
-### High  
-2. ✅ WeaponsLocked/Unlocked broadcast showed wrong player locked
-3. ✅ Games in PlacingShips status never cleaned up
-
-### Medium
-4. ✅ No HTTP timeout on CF API calls
-5. ✅ CF validation inconsistent (P1 fail-open, P2 fail-closed)
-6. ✅ Integer overflow in game_duration_mins calculation
-7. ✅ Stale closure in WeaponsLocked/Unlocked handlers
-8. ✅ Reconnection loop on game not found
-9. ✅ Ship placement allowed during combat
-
-### Low
-10. ✅ GameOver stats tracking (your_shots_missed)
 
 ---
 
