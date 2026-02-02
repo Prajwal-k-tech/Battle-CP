@@ -1,52 +1,48 @@
-use serde::{Deserialize, Serialize}; //for json
-use uuid::Uuid; //creation of uuids
-                //contains our server messages
+use serde::{Deserialize, Serialize}; 
+use uuid::Uuid; 
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientMessage {
-    JoinGame {
+    JoinGame { //join a game + players cf handle
         player_id: Uuid,
         cf_handle: String,
     },
-    PlaceShips {
+    PlaceShips { //placement of ships
         ships: Vec<ShipPlacement>,
     },
-    Fire {
+    Fire { //where in the grid you fire 
         x: usize,
         y: usize,
     },
-    SolveCP {
+    SolveCP { //contest id + problem index shows which q to solve
         contest_id: i32,
         problem_index: String,
     },
-    Veto,
+    Veto, //veto request, type only 
 }
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
-pub enum ServerMessage {
+pub enum ServerMessage {//handles server messages
     GameJoined {
-        //joined the game
+        //player successfully joined the game + lobby settings 
         game_id: Uuid,
         player_id: Uuid,
-        difficulty: u32, // problem difficulty for the game
-        max_heat: u32,   // heat threshold before weapons lock
-        max_vetoes: u32, // total vetoes allowed
+        difficulty: u32, 
+        max_heat: u32,   
+        max_vetoes: u32,
     },
     PlayerJoined {
-        //player joined the game
         player_id: Uuid,
     },
-
     //Placement Phase
     ShipsConfirmed {
-        //player confirmed their ships
         player_id: Uuid,
     },
-    GameStart, //Game started
+    GameStart,
 
     //Combat Phase
-    GameUpdate {
+    GameUpdate { //every tick you get an update on these game stats
         status: String,
         is_active: bool,
         heat: u32,
@@ -64,15 +60,14 @@ pub enum ServerMessage {
         shooter_id: Uuid,
     },
     WeaponsLocked {
-        player_id: Uuid, // So frontend can filter by player
+        player_id: Uuid, //whatevers players weapons get lcoked
     },
     WeaponsUnlocked {
-        player_id: Uuid, // So frontend can filter by player
-        reason: String,  // "solved" or "veto_expired"
+        player_id: Uuid, 
+        reason: String,  //either "solved" or "veto"
     },
 
-    // Game End
-    GameOver {
+    GameOver{
         winner_id: Option<Uuid>,
         reason: String,
         // Stats for the receiving player
@@ -104,3 +99,4 @@ pub struct ShipPlacement {
     pub size: u8,
     pub vertical: bool,
 }
+//this file describes all the json messages between client and server 

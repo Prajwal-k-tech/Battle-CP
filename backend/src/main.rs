@@ -21,15 +21,15 @@ async fn main() -> anyhow::Result<()> {
         .split(',')
         .filter_map(|s| s.trim().parse::<HeaderValue>().ok())
         .collect();
-
+                            
     let app = Router::new()
         .route("/", get(root))
         .route("/api/game", axum::routing::post(handlers::create_game))
         .route(
-            "/api/contest/:contest_id",
+            "/api/contest/{contest_id}",
             get(handlers::get_contest_problems),
         )
-        .route("/ws/:game_id", get(ws::ws_handler))
+        .route("/ws/{game_id}", get(ws::ws_handler))
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
@@ -70,5 +70,5 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn root() -> &'static str {
-    "Battle CP Backend Online"
+    "Battle CP Backend Online, made by oGhostyyy"
 }

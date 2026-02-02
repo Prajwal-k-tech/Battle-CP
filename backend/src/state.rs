@@ -4,15 +4,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone)] 
 pub struct AppState {
-    pub games: Arc<RwLock<HashMap<Uuid, Game>>>,
-    pub cf_client: crate::cf_client::CFClient,
+    pub games: Arc<RwLock<HashMap<Uuid, Game>>>, //rewlock , many can read one can write, Arc allows shared ownership across threads
+    pub cf_client: crate::cf_client::CFClient, //initiates a cf client to deal with verification + problem fetching
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self::new()
+        Self::new() //constructure for appstate
     }
 }
 
@@ -31,7 +31,7 @@ pub enum GameEvent {
     Message(crate::protocol::ServerMessage),
 }
 
-/// Game configuration with sensible defaults
+// Game configuration with sensible defaults
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameConfig {
     pub difficulty: u32,          // CP problem rating: 700-1200
@@ -41,7 +41,7 @@ pub struct GameConfig {
     pub game_duration_secs: u64, // default: 45 * 60 = 2700
 }
 
-impl Default for GameConfig {
+impl Default for GameConfig { //setting up the default difficulty
     fn default() -> Self {
         Self {
             difficulty: 800,
@@ -55,16 +55,16 @@ impl Default for GameConfig {
 
 /// Player statistics for tie-breaking
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct PlayerStats {
+pub struct PlayerStats {//stats displayed later + win deterimination
     pub ships_sunk: u32,
     pub cells_hit: u32,
     pub cells_missed: u32,
-    pub problems_solved: u32,
+    pub problems_solved: u32,                                                                                                                                                                                                                                                                                                                                                               
 }
 
-/// Tie-break result
+// Tie-break result
 #[derive(Clone, Debug, PartialEq)]
-pub enum TiebreakResult {
+pub enum TiebreakResult { //results of game
     Player1Wins,
     Player2Wins,
     SuddenDeath,
@@ -89,7 +89,7 @@ pub struct Game {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GameStatus {
-    Waiting,      // Waiting for P2 to join
+    Waiting,      // Waiting for P2 to joi  n
     PlacingShips, // Both players joined, placing ships
     Playing,      // Both placed ships, combat phase
     SuddenDeath,  // Tiebreaker: first hit wins

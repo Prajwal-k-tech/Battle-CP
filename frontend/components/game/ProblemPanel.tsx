@@ -4,25 +4,30 @@ import React, { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { ExternalLink, Check, Clock, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "sonner"; //this is the bottom error thingy 
 
-interface Problem {
+interface RawProblem { //problem we get from api
     contestId: number;
     index: string;
     name: string;
-    rating?: number;
+    rating?: number; // API might return undefined
 }
 
-// Module-level problem cache to avoid repeated API calls across overheat events
-// Persists for the lifetime of the tab, even across component re-renders
-const problemCache: Map<number, Problem[]> = new Map();
+interface RatedProblem { //cleansed problem we use 
+    contestId: number;
+    index: string;
+    name: string;
+    rating: number; // We guarantee this exists
+}
+
+const problemCache: Map<number, RatedProblem[]> = new Map(); // Cache now strictly typed!
 
 interface ProblemPanelProps {
     isLocked: boolean;
     difficulty: number;
     vetoesRemaining: number;
     maxVetoes: number;
-    vetoTimeRemaining: number | null;
+    vetoTimeRemaining: number | null; //could be null?
     onSolve: (contestId: number, problemIndex: string) => void;
     onVeto: () => void;
 }
@@ -38,7 +43,7 @@ export function ProblemPanel({
     onSolve,
     onVeto,
 }: ProblemPanelProps) {
-    const [problem, setProblem] = useState<Problem | null>(null);
+    const [problem, setProblem] = useState<RatedProblem | null>(null);
     const [loading, setLoading] = useState(false);
     const [verifying, setVerifying] = useState(false);
     const [verifyCooldown, setVerifyCooldown] = useState(0); // Seconds remaining before can verify again
@@ -80,29 +85,24 @@ export function ProblemPanel({
     const fetchProblem = useCallback(async () => {
         setLoading(true);
         try {
-            // Check cache first
-            let problems = problemCache.get(difficulty);
-
-            if (!problems) {
-                // Cache miss - fetch from API
+            let problems = problemCache.get(difficulty); //check in our cache for problems of that difficulty
+            if (!problems) {//cache missed lets fetch
                 const response = await fetch(
                     `https://codeforces.com/api/problemset.problems`
                 );
-
                 if (!response.ok) throw new Error("Failed to fetch problems");
-
                 const data = await response.json();
                 if (data.status !== "OK") throw new Error("Codeforces API error");
-
                 // Filter and cache ALL difficulty levels at once to minimize future calls
-                const allProblems = data.result.problems as Problem[];
-                const byRating = new Map<number, Problem[]>();
+                const allProblems = data.result.problems as RawProblem[];
+                const byRating = new Map<number, RatedProblem[]>();
 
                 for (const p of allProblems) {
                     if (p.rating) {
+                        const ratedP = p as RatedProblem;
                         const existing = byRating.get(p.rating) || [];
                         if (existing.length < 100) { // Cap at 100 per rating
-                            existing.push(p);
+                            existing.push(ratedP);
                             byRating.set(p.rating, existing);
                         }
                     }

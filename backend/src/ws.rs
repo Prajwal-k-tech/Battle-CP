@@ -68,7 +68,8 @@ async fn handle_socket(
                     serde_json::to_string(&ServerMessage::Error {
                         message: "Game not found".to_string(),
                     })
-                    .unwrap(),
+                    .unwrap()
+                    .into(),
                 ))
                 .await;
             return;
@@ -92,7 +93,7 @@ async fn handle_socket(
 
                                 for resp in responses {
                                     let resp_text = serde_json::to_string(&resp).unwrap();
-                                    if sender.send(Message::Text(resp_text)).await.is_err() {
+                                    if sender.send(Message::Text(resp_text.into())).await.is_err() {
                                         println!("[WS] Failed to send response, closing connection");
                                         break 'main_loop;
                                     }
@@ -139,7 +140,7 @@ async fn handle_socket(
                                                 let p2_id = game.player2.as_ref().unwrap().id;
                                                 let joined_msg = ServerMessage::PlayerJoined { player_id: p2_id };
                                                 if let Ok(msg_text) = serde_json::to_string(&joined_msg) {
-                                                    let _ = sender.send(Message::Text(msg_text)).await;
+                                                    let _ = sender.send(Message::Text(msg_text.into())).await;
                                                 }
                                             }
 
@@ -173,7 +174,7 @@ async fn handle_socket(
                                                 veto_time_remaining_secs: veto_time_remaining,
                                             };
                                             let resp_text = serde_json::to_string(&update).unwrap();
-                                            if sender.send(Message::Text(resp_text)).await.is_err() {
+                                            if sender.send(Message::Text(resp_text.into())).await.is_err() {
                                                 println!("[WS] Failed to send tick update, closing connection");
                                                 break 'main_loop;
                                             }
@@ -183,7 +184,7 @@ async fn handle_socket(
                             }
                             crate::state::GameEvent::Message(msg) => {
                                  let resp_text = serde_json::to_string(&msg).unwrap();
-                                 if sender.send(Message::Text(resp_text)).await.is_err() {
+                                 if sender.send(Message::Text(resp_text.into())).await.is_err() {
                                      println!("[WS] Failed to send broadcast message, closing connection");
                                      break 'main_loop;
                                  }

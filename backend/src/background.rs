@@ -1,11 +1,10 @@
 use crate::protocol::ServerMessage;
 use crate::state::{AppState, GameEvent, GameStatus, TiebreakResult};
 use tokio::time::{sleep, Duration};
-//main game loop / server handling multiple game states at a time
+//main game loop / server handling multiple game states at a timeR
 pub async fn start_global_ticker(state: AppState) {
     //our async global ticker, keep passing the app state
     loop {
-        //infinite loop in rust
         sleep(Duration::from_secs(1)).await; //1 tick  is 1 second
         let mut games = state.games.write().await;
         for game in games.values_mut() {
