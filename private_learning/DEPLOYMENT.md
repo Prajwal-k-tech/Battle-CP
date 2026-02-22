@@ -12,78 +12,67 @@ This guide covers deploying Battle CP to production environments.
 
 ---
 
-## 🏆 RECOMMENDED: Vercel (Frontend) + Azure App Service (Backend)
+## 🏆 RECOMMENDED: Vercel (Frontend) + Azure Container Apps (Backend)
 
 **Best for**: Students with Azure for Students ($100 credits), easiest Docker setup, reliable uptime, automatic HTTPS.
 
 ### Why this stack?
 - You already have **Vercel** for the frontend (free).
-- **Azure App Service (Web App for Containers)** can natively host your provided `backend/Dockerfile`. It provisions the server, reads the Dockerfile, builds the Rust container, and exposes it to the internet securely.
-- **WebSockets** are supported seamlessly via Azure's load balancers.
-- The $100 student credits will easily cover the `B1` (Basic) plan for several months (or you can downgrade to `F1` Free tier, though Basic is highly recommended to avoid sleep/wakeup latency).
+- **Azure Container Apps** is Azure's modern, serverless container platform. It natively connects to your GitHub repo, automatically builds your `backend/Dockerfile`, and deploys it **without** you needing to manually set up a clunky Container Registry.
+- **WebSockets** are supported out-of-the-box.
+- The $100 student credits will easily cover the costs.
 
-### Step 1: Create the Web App in Azure
+### Step 1: Create the Container App in Azure
 
 1. Go to the [Azure Portal](https://portal.azure.com/) and sign in.
-2. In the top search bar, search for and click **App Services**.
-3. Click **+ Create** -> **Web App**.
+2. In the top search bar, search for **Container Apps** *(Do NOT select App Services)*.
+3. Click **+ Create**.
 4. **Basics Tab**:
    - **Subscription**: Your Azure for Students subscription.
    - **Resource Group**: Click "Create new" and enter `battlecp-rg`.
-   - **Name**: Choose a globally unique name, e.g., `battlecp-backend-yourname`.
-   - **Publish**: Select `Docker Container`.
-   - **Operating System**: `Linux`.
-   - **Region**: Choose the region closest to your users (e.g., `East US`, `Central India`).
-   - **Pricing Plan**: Under Linux Plan, select **Explore pricing plans**, and choose the **B1 Basic** tier (covered by your credits).
-5. **Docker Tab**:
-   - Set **Options** to `Single Container`.
-   - Set **Image Source** to `Quickstart` (we will link your GitHub repo in the next step instead).
-6. Click **Review + Create**, then **Create**. Wait 1-2 minutes for deployment to finish.
-
-### Step 2: Connect GitHub & Auto-Deploy
-
-1. Once the resource is created, click **Go to resource**.
-2. In the left sidebar menu, scroll to **Deployment** and click **Deployment Center**.
-3. Set **Source** to **GitHub**. (Authorize Azure to access your GitHub if prompted).
-4. Configure the integration:
+   - **Container App Name**: Choose a globally unique name, e.g., `battlecp-backend`.
+   - **Region**: Choose the region closest to your users.
+   - **Container Apps Environment**: Leave as default (it will create a new one automatically).
+5. **Container Tab** *(The Magic Step!)*:
+   - Check the box for **Use image from source code** (or "Use code from a repository").
+   - Authenticate with your GitHub account.
    - **Organization**: Your GitHub username.
    - **Repository**: `Battle-CP`
    - **Branch**: `main`
-5. **CRITICAL STEP - Set Dockerfile Path**: 
-   - Since our backend is in a subfolder, you must specify the exact path to the Dockerfile.
-   - Look for the **Dockerfile path** or **Context** input field (it might be under "Build Details" or appear after selecting your repo).
-   - Enter: `backend/Dockerfile`
-   - *If it asks for a context directory as well, enter `backend/`*
-6. Click **Save** at the top.
-   *Azure will automatically create a GitHub Actions workflow file in your `.github/workflows` folder on GitHub. This action automatically builds your container and pushes it to Azure every time you push code!*
+   - **Build context**: `backend/`
+   - **Dockerfile path**: `backend/Dockerfile`
+6. **Ingress Tab** *(CRITICAL: This enables WebSockets)*:
+   - **Enable Ingress**: `Yes`
+   - **Ingress traffic**: `Accepting traffic from anywhere`
+   - **Target port**: `3000`
+7. Click **Review + Create**, then **Create**. 
 
-### Step 3: Enable WebSockets & Environment Variables
+*Azure will now automatically create a GitHub Actions workflow in your repo that builds the Dockerfile and deploys it!*
 
-Azure disables WebSockets by default. You **must** enable them.
-1. In the left sidebar menu, go to **Settings** -> **Configuration**.
-2. Click on the **General settings** tab.
-3. Scroll down to **Web sockets** and select **On**.
-4. Click **Save** at the top.
-5. Next, click on the **Application settings** tab.
-6. Click **+ New application setting** and add the following two variables:
+### Step 2: Set Environment Variables
+
+Once the deployment finishes and the resource is created:
+1. Go to your new Container App resource in the Azure Portal.
+2. In the left sidebar, click **Containers**, then click **Edit and deploy**.
+3. Click on your container image name.
+4. Scroll down to **Environment Variables** and add:
    - Name: `PORT`, Value: `3000`
    - Name: `ALLOWED_ORIGINS`, Value: `https://your-vercel-domain.vercel.app` *(Replace with your actual Vercel URL)*
-7. Click **Save** and then **Continue**.
+5. Click **Save**, then **Create** (this restarts the container with the new variables).
 
-*(Optional: You can check the "Logs" or "Log stream" to watch the container boot up once the GitHub Action finishes).*
+### Step 3: Update Frontend Environment Variables
 
-### Step 4: Update Frontend Environment Variables
-
-1. Go back to your [Vercel Dashboard](https://vercel.com) -> Select your project -> **Settings** -> **Environment Variables**.
-2. Update the two variables to point to your new Azure backend:
+1. On your Container App's **Overview** page, copy the **Application Url** (e.g., `https://battlecp-backend.some-random-words.eastus.azurecontainerapps.io`).
+2. Go back to your [Vercel Dashboard](https://vercel.com) -> Select your project -> **Settings** -> **Environment Variables**.
+3. Update the two variables to point to your new Azure backend URL:
    ```env
-   NEXT_PUBLIC_API_URL=https://battlecp-backend-yourname.azurewebsites.net
-   NEXT_PUBLIC_WS_URL=wss://battlecp-backend-yourname.azurewebsites.net
+   NEXT_PUBLIC_API_URL=https://battlecp-backend.some-random-words...
+   NEXT_PUBLIC_WS_URL=wss://battlecp-backend.some-random-words...
    ```
    *(Note: Make sure the WS URL uses `wss://` and HTTP uses `https://`)*
-3. Go to the **Deployments** tab and click **Redeploy** on the latest build.
+4. Go to the **Deployments** tab and click **Redeploy** on the latest build.
 
-### Step 5: Test
+### Step 4: Test
 Open your Vercel URL. Try creating a game. Both sides will securely connect via Azure-powered WebSockets!
 
 **Cost**: $0 out of pocket (Vercel free tier + Azure $100 credits covers the B1 plan for ~7.5 months, or switch to F1 free tier laterally).
