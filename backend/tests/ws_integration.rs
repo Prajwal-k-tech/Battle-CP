@@ -15,7 +15,7 @@ async fn test_ws_connection_and_flow() {
     // 1. Setup Server
     let app_state = AppState::new();
     let app = axum::Router::new()
-        .route("/ws/:game_id", axum::routing::get(backend::ws::ws_handler))
+        .route("/ws/{game_id}", axum::routing::get(backend::ws::ws_handler))
         .with_state(app_state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

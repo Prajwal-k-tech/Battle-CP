@@ -102,10 +102,22 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
 
                     console.log(`[WS] GameUpdate: status="${msg.status}", currentPhase="${prev.phase}"`);
 
+                    // SECURITY: Only process GameUpdates if we have a confirmed playerId
+                    // This prevents third players (who got rejected) from transitioning phases
+                    if (!prev.playerId) {
+                        console.warn("[WS] GameUpdate received but no playerId confirmed, ignoring phase changes");
+                        return prev;
+                    }
+
                     // Only transit to combat if we are actually playing
                     if (msg.status === "Playing" && (prev.phase === "connecting" || prev.phase === "lobby" || prev.phase === "placement")) {
-                        newPhase = "combat";
-                        console.log("[WS] GameUpdate: Transitioning to combat");
+                        // EXTRA SAFETY: Only transition if ships are placed
+                        if (prev.myShipsPlaced && prev.opponentShipsPlaced) {
+                            newPhase = "combat";
+                            console.log("[WS] GameUpdate: Transitioning to combat");
+                        } else {
+                            console.warn("[WS] GameUpdate says Playing but ships not placed, staying in", prev.phase);
+                        }
                     }
                     // Handle initial connection state - but NEVER reset from placement
                     else if (msg.status.includes("Waiting") && prev.phase === "connecting") {
@@ -204,6 +216,9 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 break;
 
             case "GameOver":
+                // CLEANUP: Clear active game session when game ends
+                localStorage.removeItem("battlecp_active_game");
+                
                 setGameState(prev => ({
                     ...prev,
                     phase: "finished",
@@ -222,11 +237,23 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     ...prev,
                     lastError: msg.message,
                 }));
-                // If game not found or ended, set flag to prevent reconnection
-                if (msg.message.includes("Game not found") || msg.message.includes("not found") || msg.message.includes("already ended")) {
+                // If game not found, ended, or full - set flag to prevent reconnection
+                if (msg.message.includes("Game not found") 
+                    || msg.message.includes("not found") 
+                    || msg.message.includes("already ended")
+                    || msg.message.includes("Game is full")
+                    || msg.message.includes("full")) {
                     setGameNotFound(true);
                     shouldStopReconnect.current = true; // Prevent reconnection attempts
-                    toast.error("Game not found or has ended. Please create a new game.");
+                    
+                    // CLEANUP: Clear active game session when game not found/full
+                    localStorage.removeItem("battlecp_active_game");
+                    
+                    if (msg.message.includes("full")) {
+                        toast.error("This game is full. Both player slots are occupied.", { id: "game-full" });
+                    } else {
+                        toast.error("Game not found or has ended. Please create a new game.");
+                    }
                 } else if (msg.message.includes("Submission not accepted") || msg.message.includes("No accepted submission")) {
                     toast.error("No accepted submission found. Solve the problem on Codeforces first!");
                 } else {

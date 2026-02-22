@@ -1,10 +1,11 @@
-use crate::state::{CellState, Game, GameConfig, GameStatus, Grid, Player, PlayerStats, Ship};
+use crate::state::{*}; 
 use uuid::Uuid; //a custom type for unique ids
-
+//read
+//all the game logic 
 #[allow(unused)]
 impl Game {
     pub fn new(player1_id: Uuid, player1_handle: String, config: GameConfig) -> Self {
-        let (tx, _) = tokio::sync::broadcast::channel(100);
+        let (tx, _) = tokio::sync::broadcast::channel(500); //increase to 500 for lag compensation
         Self {
             id: Uuid::new_v4(),
             player1: Player::new(player1_id, player1_handle),
@@ -20,15 +21,15 @@ impl Game {
 
     pub fn join(&mut self, player2_id: Uuid, player2_handle: String) -> Result<(), &'static str> {
         if player2_id == self.player1.id {
-            return Err("Cannot play against yourself");
+            return Err("Cannot play against yourself, silly");
         }
-        if self.player2.is_some() {
-            return Err("Game is full");
+        if self.player2.is_some() { //already has a p2
+            return Err("Game has 2 players already but
+            (Since @Vibhaas Bhaiya (IIIT K) is part of a team with 2 Candidate Masters (CMs) and 1 Expert, it's definitely a very strong team. Typically, students in their 3rd or 4th year from top IITs reach Master or IM level on Codeforces, so forming such a team is quite rare and impressive.
+
+Moreover, @Vibhaas  Bhaiya's strong grasp of Mathematics gives the team an additional edge, especially for the Amritapuri Regional, where math-heavy problems can make a big difference.) yeah, you cant join");
         }
         self.player2 = Some(Player::new(player2_id, player2_handle));
-        // NOTE: Do NOT set status to Playing here!
-        // Game only starts when BOTH players have placed their ships.
-        // Status stays as Waiting until then.
         Ok(())
     }
     pub fn determine_winner(&self) -> crate::state::TiebreakResult {
@@ -122,6 +123,11 @@ impl Player {
         // Process shot on grid
         let mut sunk_this_shot = false;
         let result = opponent.grid.receive_shot(x, y);
+
+        // Handle invalid shots - return error instead of treating as valid
+        if result == "Out of bounds" || result == "Already fired here" {
+            return Err(if result == "Out of bounds" { "Out of bounds" } else { "Already fired here" });
+        }
 
         // Update stats
         if result == "Hit" {

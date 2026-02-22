@@ -68,9 +68,10 @@ export default function CreateGamePage() {
             const newGameId = data.game_id;
             const newPlayerId = data.player_id;
 
-            // Store credentials
+            // Store credentials + active game session
             localStorage.setItem("battlecp_player_id", newPlayerId);
             localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
+            localStorage.setItem("battlecp_active_game", newGameId);
 
             toast.success("Uplink Established", { description: `Lobby ID: ${newGameId}` });
 
@@ -92,6 +93,7 @@ export default function CreateGamePage() {
 
             localStorage.setItem("battlecp_player_id", fallbackPlayerId);
             localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
+            localStorage.setItem("battlecp_active_game", fallbackGameId);
 
             toast.warning("Using offline mode (backend unavailable)");
 

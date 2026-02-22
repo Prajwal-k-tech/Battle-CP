@@ -128,7 +128,7 @@ export function ProblemPanel({
             toast.error("Failed to load problem from Codeforces");
 
             // Fallback problems by rating - used when CF API is down
-            const fallbacksByRating: Record<number, Problem[]> = {
+            const fallbacksByRating: Record<number, RatedProblem[]> = {
                 800: [
                     { contestId: 1950, index: "A", name: "Stair, Peak, or Neither?", rating: 800 },
                     { contestId: 1950, index: "B", name: "Upscaling", rating: 800 },

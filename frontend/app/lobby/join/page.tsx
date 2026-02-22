@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ArrowRight, Terminal, User } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { MemoizedFaultyTerminal } from "@/components/ui/FaultyTerminal";
 
@@ -16,8 +16,23 @@ import { useSound } from "@/context/SoundContext";
 
 export default function JoinGamePage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [lobbyId, setLobbyId] = useState("");
     const [cfHandle, setCfHandle] = useState("");
+    
+    // Pre-fill lobby ID from redirect query param and CF handle from localStorage
+    useEffect(() => {
+        const redirectGameId = searchParams.get("redirect");
+        if (redirectGameId) {
+            setLobbyId(redirectGameId);
+        }
+        
+        // Pre-fill CF handle if user has one stored
+        const storedHandle = localStorage.getItem("battlecp_cf_handle");
+        if (storedHandle) {
+            setCfHandle(storedHandle);
+        }
+    }, [searchParams]);
     const { playJoin } = useSound();
 
     const handleJoin = (e: React.FormEvent) => {
@@ -36,12 +51,25 @@ export default function JoinGamePage() {
             return;
         }
 
-        // Generate a proper UUID for player ID (must match backend UUID format)
-        const newPlayerId = crypto.randomUUID();
-        localStorage.setItem("battlecp_player_id", newPlayerId);
+        // RECONNECTION SUPPORT: Reuse existing player_id if same CF handle
+        // This allows the same person to rejoin from a different tab
+        const storedHandle = localStorage.getItem("battlecp_cf_handle");
+        const storedPlayerId = localStorage.getItem("battlecp_player_id");
+        
+        let playerId: string;
+        if (storedHandle?.toLowerCase() === cfHandle.trim().toLowerCase() && storedPlayerId) {
+            // Same person, reuse their ID for reconnection
+            playerId = storedPlayerId;
+        } else {
+            // Different person or first time, generate new ID
+            playerId = crypto.randomUUID();
+            localStorage.setItem("battlecp_player_id", playerId);
+        }
+        
         localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
+        localStorage.setItem("battlecp_active_game", trimmedLobbyId);
 
-        router.push(`/game/${lobbyId.trim()}`);
+        router.push(`/game/${trimmedLobbyId}`);
     };
 
     return (

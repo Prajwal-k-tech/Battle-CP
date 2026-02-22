@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
-
+//read
 #[derive(Clone)] 
 pub struct AppState {
     pub games: Arc<RwLock<HashMap<Uuid, Game>>>, //rewlock , many can read one can write, Arc allows shared ownership across threads
@@ -11,7 +11,7 @@ pub struct AppState {
 }
 
 impl Default for AppState {
-    fn default() -> Self {
+    fn default() -> Self { //kind stupid the llm did this but no performance issue ig except 1 extra call on the stack?
         Self::new() //constructure for appstate
     }
 }
@@ -48,12 +48,12 @@ impl Default for GameConfig { //setting up the default difficulty
             heat_threshold: 7,
             veto_penalties: [420, 600, 900], // 7, 10, 15 minutes
             max_vetoes: 3,
-            game_duration_secs: 45 * 60, // 45 minutes
+            game_duration_secs: 2700, // 45 minutes (written in seconds)
         }
     }
 }
 
-/// Player statistics for tie-breaking
+// Player statistics for tie-breaking
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PlayerStats {//stats displayed later + win deterimination
     pub ships_sunk: u32,
@@ -89,7 +89,7 @@ pub struct Game {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GameStatus {
-    Waiting,      // Waiting for P2 to joi  n
+    Waiting,      // Waiting for P2 to join
     PlacingShips, // Both players joined, placing ships
     Playing,      // Both placed ships, combat phase
     SuddenDeath,  // Tiebreaker: first hit wins
@@ -97,7 +97,7 @@ pub enum GameStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Player {
+pub struct Player { //everything related to the player
     pub id: Uuid,
     pub cf_handle: String,
     pub grid: Grid,
@@ -115,11 +115,11 @@ pub struct Player {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Grid {
-    pub cells: [[CellState; 10]; 10],
+    pub cells: [[CellState; 10]; 10], //10x10 grid
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub enum CellState {
+pub enum CellState { //stats a cell can have for front end to figure out
     Empty,
     Ship,
     Hit,

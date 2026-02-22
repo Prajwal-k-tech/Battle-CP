@@ -232,10 +232,27 @@ async fn handle_client_message(
                 }
 
                 // Check if player is already in the game (Reconnect)
-                let is_p1 = game.player1.id == pid;
-                let is_p2 = game.player2.as_ref().map(|p| p.id) == Some(pid);
+                // Support reconnection by EITHER player_id OR cf_handle match
+                let is_p1_by_id = game.player1.id == pid;
+                let is_p1_by_handle = game.player1.cf_handle.eq_ignore_ascii_case(&cf_handle);
+                let is_p2_by_id = game.player2.as_ref().map(|p| p.id) == Some(pid);
+                let is_p2_by_handle = game.player2.as_ref().map(|p| p.cf_handle.eq_ignore_ascii_case(&cf_handle)).unwrap_or(false);
+                
+                let is_p1 = is_p1_by_id || is_p1_by_handle;
+                let is_p2 = is_p2_by_id || is_p2_by_handle;
 
                 if is_p1 || is_p2 {
+                    // Update player_id if reconnecting by handle (new session)
+                    if is_p1 && !is_p1_by_id {
+                        game.player1.id = pid;
+                        tracing::info!("Player 1 reconnected by CF handle: {}", cf_handle);
+                    }
+                    if is_p2 && !is_p2_by_id {
+                        if let Some(ref mut p2) = game.player2 {
+                            p2.id = pid;
+                            tracing::info!("Player 2 reconnected by CF handle: {}", cf_handle);
+                        }
+                    }
                     // RECONNECTION LOGIC
                     let mut msgs = vec![];
 
@@ -349,7 +366,15 @@ async fn handle_client_message(
                     return msgs;
                 }
 
+                // Check if player is trying to join as P2
                 if game.player1.id != pid && game.player2.is_none() {
+                    // SECURITY: Block same CF handle from joining as both players
+                    if game.player1.cf_handle.eq_ignore_ascii_case(&cf_handle) {
+                        return vec![ServerMessage::Error {
+                            message: "You cannot play against yourself! Use the same browser session to reconnect.".to_string(),
+                        }];
+                    }
+                    
                     // P2 is joining - get P1's ID before joining
                     let p1_id = game.player1.id;
 
@@ -399,6 +424,16 @@ async fn handle_client_message(
                         ServerMessage::PlayerJoined { player_id: p1_id },
                     ];
                 }
+
+                // BUG FIX: Third player trying to join a full game
+                if game.player1.id != pid && game.player2.is_some() {
+                    return vec![ServerMessage::Error {
+                        message: "Game is full. Both player slots are occupied.".to_string(),
+                    }];
+                }
+
+                // If we reach here, player is P1 (host) connecting for first time
+                // This should only happen if P1 connects before calling JoinGame
                 vec![ServerMessage::GameJoined {
                     game_id,
                     player_id: pid,

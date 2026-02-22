@@ -2,12 +2,12 @@
 
 import { MemoizedFaultyTerminal } from "@/components/ui/FaultyTerminal";
 import { Button } from "@/components/ui/button";
-import { Terminal, Users } from "lucide-react";
+import { Terminal, Users, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useSound } from "@/context/SoundContext";
 import { useMusic } from "@/context/MusicContext";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 // Stable constant for FaultyTerminal to prevent re-renders
 const GRID_MUL: [number, number] = [2, 1];
@@ -15,14 +15,48 @@ const GRID_MUL: [number, number] = [2, 1];
 export default function Home() {
   const { playJoin, playSuccess } = useSound();
   const { setPhase } = useMusic();
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+
+  // Check for active game session on mount
+  useEffect(() => {
+    const activeGame = localStorage.getItem("battlecp_active_game");
+    if (activeGame) {
+      setActiveGameId(activeGame);
+    }
+  }, []);
 
   // Start menu music on page load
   useEffect(() => {
     setPhase("menu");
   }, [setPhase]);
 
+  const handleAbandonGame = () => {
+    localStorage.removeItem("battlecp_active_game");
+    setActiveGameId(null);
+  };
+
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-black text-white selection:bg-primary/30">
+      {/* Active Game Banner */}
+      {activeGameId && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-500 text-black py-2 px-4 flex items-center justify-center gap-4 pointer-events-auto">
+          <span className="font-mono text-sm">You have an active game session</span>
+          <Link href={`/game/${activeGameId}`}>
+            <Button size="sm" className="bg-black text-yellow-500 hover:bg-zinc-800 gap-2">
+              REJOIN GAME <ArrowRight className="w-4 h-4" />
+            </Button>
+          </Link>
+          <Button 
+            size="sm" 
+            variant="ghost" 
+            className="text-black hover:bg-yellow-600"
+            onClick={handleAbandonGame}
+          >
+            ABANDON
+          </Button>
+        </div>
+      )}
+
       {/* Background with FaultyTerminal */}
       <div className="absolute inset-0 z-0">
         <MemoizedFaultyTerminal
