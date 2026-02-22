@@ -49,7 +49,12 @@ This guide covers deploying Battle CP to production environments.
    - **Organization**: Your GitHub username.
    - **Repository**: `Battle-CP`
    - **Branch**: `main`
-5. Click **Save** at the top.
+5. **CRITICAL STEP - Set Dockerfile Path**: 
+   - Since our backend is in a subfolder, you must specify the exact path to the Dockerfile.
+   - Look for the **Dockerfile path** or **Context** input field (it might be under "Build Details" or appear after selecting your repo).
+   - Enter: `backend/Dockerfile`
+   - *If it asks for a context directory as well, enter `backend/`*
+6. Click **Save** at the top.
    *Azure will automatically create a GitHub Actions workflow file in your `.github/workflows` folder on GitHub. This action automatically builds your container and pushes it to Azure every time you push code!*
 
 ### Step 3: Enable WebSockets & Environment Variables
