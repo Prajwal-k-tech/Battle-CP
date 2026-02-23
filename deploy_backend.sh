@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -e
 echo "🚀 Starting BattleCP Backend Deployment..."
 
 # Get ACR credentials
