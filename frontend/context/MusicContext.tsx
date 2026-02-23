@@ -77,13 +77,18 @@ export function MusicProvider({ children }: { children: React.ReactNode }) {
     const handleTrackEnded = useCallback(() => {
         if (!audioRef.current) return;
 
+        if (currentPhase === "victory" || currentPhase === "defeat") {
+            // Do not loop end-game sounds
+            return;
+        }
+
         if (currentPhase === "combat") {
             // Move to next track in playlist
             combatIndexRef.current = (combatIndexRef.current + 1) % combatPlaylistRef.current.length;
             audioRef.current.src = combatPlaylistRef.current[combatIndexRef.current];
             audioRef.current.play().catch(() => { }); // Ignore autoplay errors
         } else {
-            // Loop single track
+            // Loop single track (menu, placement, sudden_death)
             audioRef.current.currentTime = 0;
             audioRef.current.play().catch(() => { });
         }
