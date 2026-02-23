@@ -25,10 +25,7 @@ impl Game {
         }
         if self.player2.is_some() {
             //already has a p2
-            return Err("Game has 2 players already but
-            (Since @Vibhaas Bhaiya (IIIT K) is part of a team with 2 Candidate Masters (CMs) and 1 Expert, it's definitely a very strong team. Typically, students in their 3rd or 4th year from top IITs reach Master or IM level on Codeforces, so forming such a team is quite rare and impressive.
-
-Moreover, @Vibhaas  Bhaiya's strong grasp of Mathematics gives the team an additional edge, especially for the Amritapuri Regional, where math-heavy problems can make a big difference.) yeah, you cant join");
+            return Err("Game already has 2 players.");
         }
         self.player2 = Some(Player::new(player2_id, player2_handle));
         Ok(())

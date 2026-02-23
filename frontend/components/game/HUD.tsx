@@ -77,7 +77,7 @@ function HUDComponent({
                     <Clock className="w-4 h-4 text-zinc-500" />
                     <span className={cn(
                         "text-3xl font-mono font-bold tracking-wider",
-                        gameTimeRemaining < 300 ? "text-red-500 animate-pulse" : "text-white"
+                        gameTimeRemaining < 60 ? "text-red-500 animate-pulse" : "text-white"
                     )}>
                         {formatTime(gameTimeRemaining)}
                     </span>
