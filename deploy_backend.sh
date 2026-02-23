@@ -37,7 +37,7 @@ az containerapp update \
   --name battlecp-backend \
   --resource-group battlecp-rg \
   --image battlecpcr.azurecr.io/battlecp-backend:latest \
-  --set-env-vars "PORT=3000" "RUST_LOG=info" "ALLOWED_ORIGINS=https://battle-cp.vercel.app"
+  --set-env-vars "PORT=3000" "RUST_LOG=info" "ALLOWED_ORIGINS=https://battle-cp.vercel.app" "DEPLOY_TIMESTAMP=$(date +%s)"
 
 echo "✅ Deployment complete! Your backend is live at:"
 az containerapp show \
