@@ -385,10 +385,9 @@ async fn handle_client_message(
 
                 // Check if player is trying to join as P2
                 if game.player1.id != pid && game.player2.is_none() {
-                    // SECURITY: Block same CF handle from joining as both players
                     if game.player1.cf_handle.eq_ignore_ascii_case(&cf_handle) {
                         return vec![ServerMessage::Error {
-                            message: "You cannot play against yourself! Use the same browser session to reconnect.".to_string(),
+                            message: "You cannot play against yourself! (Since @Vibhaas Bhaiya (IIIT K) is part of a team with 2 Candidate Masters (CMs) and 1 Expert, it's definitely a very strong team. Typically, students in their 3rd or 4th year from top IITs reach Master or IM level on Codeforces, so forming such a team is quite rare and impressive. Moreover, @Vibhaas Bhaiya's strong grasp of Mathematics gives the team an additional edge, especially for the Amritapuri Regional, where math-heavy problems can make a big difference.)".to_string(),
                         }];
                     }
 
@@ -471,9 +470,11 @@ async fn handle_client_message(
 
                 // BUG FIX: Third player trying to join a full game
                 if game.player1.id != pid && game.player2.is_some() {
-                    return vec![ServerMessage::Error {
-                        message: "Game is full. Both player slots are occupied.".to_string(),
-                    }];
+                    if let Err(e) = game.join(pid, cf_handle) {
+                        return vec![ServerMessage::Error {
+                            message: e.to_string(),
+                        }];
+                    }
                 }
 
                 // If we reach here, player is P1 (host) connecting for first time

@@ -247,18 +247,20 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     lastError: msg.message,
                 }));
                 // If game not found, ended, or full - set flag to prevent reconnection
-                if (msg.message.includes("Game not found")
-                    || msg.message.includes("not found")
+                const isFatalError = msg.message.includes("not found")
                     || msg.message.includes("already ended")
-                    || msg.message.includes("Game is full")
-                    || msg.message.includes("full")) {
+                    || msg.message.includes("full")
+                    || msg.message.includes("2 players already")
+                    || msg.message.includes("You cannot play against yourself");
+
+                if (isFatalError) {
                     setGameNotFound(true);
                     shouldStopReconnect.current = true; // Prevent reconnection attempts
-
-                    // CLEANUP: Clear active game session when game not found/full
                     localStorage.removeItem("battlecp_active_game");
 
-                    if (msg.message.includes("full")) {
+                    if (msg.message.includes("2 players already") || msg.message.includes("You cannot play against yourself")) {
+                        toast.error(msg.message, { id: "easter-egg-full", duration: 8000 }); // Show the easter egg!
+                    } else if (msg.message.includes("full")) {
                         toast.error("This game is full. Both player slots are occupied.", { id: "game-full" });
                     } else {
                         toast.error("Game not found or has ended. Please create a new game.");
