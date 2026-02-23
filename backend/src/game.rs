@@ -1,7 +1,7 @@
-use crate::state::{*}; 
+use crate::state::*;
 use uuid::Uuid; //a custom type for unique ids
-//read
-//all the game logic 
+                //read
+                //all the game logic
 #[allow(unused)]
 impl Game {
     pub fn new(player1_id: Uuid, player1_handle: String, config: GameConfig) -> Self {
@@ -23,7 +23,8 @@ impl Game {
         if player2_id == self.player1.id {
             return Err("Cannot play against yourself, silly");
         }
-        if self.player2.is_some() { //already has a p2
+        if self.player2.is_some() {
+            //already has a p2
             return Err("Game has 2 players already but
             (Since @Vibhaas Bhaiya (IIIT K) is part of a team with 2 Candidate Masters (CMs) and 1 Expert, it's definitely a very strong team. Typically, students in their 3rd or 4th year from top IITs reach Master or IM level on Codeforces, so forming such a team is quite rare and impressive.
 
@@ -59,14 +60,7 @@ Moreover, @Vibhaas  Bhaiya's strong grasp of Mathematics gives the team an addit
             return crate::state::TiebreakResult::Player2Wins;
         }
 
-        // 3. Problems Solved
-        if p1.stats.problems_solved > p2.stats.problems_solved {
-            return crate::state::TiebreakResult::Player1Wins;
-        } else if p2.stats.problems_solved > p1.stats.problems_solved {
-            return crate::state::TiebreakResult::Player2Wins;
-        }
-
-        // 4. Tie -> Sudden Death mode
+        // 3. Tie -> Sudden Death mode
         crate::state::TiebreakResult::SuddenDeath
     }
 }
@@ -126,7 +120,11 @@ impl Player {
 
         // Handle invalid shots - return error instead of treating as valid
         if result == "Out of bounds" || result == "Already fired here" {
-            return Err(if result == "Out of bounds" { "Out of bounds" } else { "Already fired here" });
+            return Err(if result == "Out of bounds" {
+                "Out of bounds"
+            } else {
+                "Already fired here"
+            });
         }
 
         // Update stats

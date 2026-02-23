@@ -28,5 +28,4 @@ Destroy the enemy fleet before time runs out. If time expires, the player with t
 If the game timer ends:
 1. **Primary:** Most ships remaining wins.
 2. **Secondary:** Most cells hit on enemy grid wins.
-3. **Tertiary:** Most Codeforces problems solved wins.
-4. **Final:** Sudden Death (Next hit wins).
+3. **Final:** Sudden Death (Next hit wins).

@@ -11,10 +11,13 @@ import { VictoryModal } from "@/components/game/VictoryModal";
 import { ProblemPanel } from "@/components/game/ProblemPanel";
 import Squares from "@/components/ui/Squares";
 import { ShipPlacement } from "@/types/game";
+import { cn } from "@/lib/utils";
 import { Loader2, Wifi, WifiOff } from "lucide-react";
 
 export default function GamePage({ params }: { params: Promise<{ gameId: string }> }) {
     const { gameId } = use(params);
+
+    // ... skipping to main tag ... // (Wait I need to replace from import down to main tag or use two edit tools. Let's use two edit tools.)
 
     // Use hasMounted pattern to avoid hydration mismatch
     const [hasMounted, setHasMounted] = useState(false);
@@ -230,7 +233,10 @@ function GameContent({
             </div>
 
             {/* Main Content */}
-            <main className="relative z-10 flex-1 flex flex-col items-center justify-center pt-20 p-4">
+            <main className={cn(
+                "relative z-10 flex-1 flex flex-col items-center justify-center pt-20 p-4 transition-all duration-300",
+                gameState.isLocked && "md:pr-80"
+            )}>
                 {/* Connecting State */}
                 {gameState.phase === "connecting" && (
                     <div className="flex flex-col items-center gap-4 animate-pulse">
@@ -306,6 +312,7 @@ function GameContent({
                 {/* Problem Panel - Shows when weapons are locked */}
                 {gameState.phase === "combat" && (
                     <ProblemPanel
+                        cfHandle={cfHandle}
                         isLocked={gameState.isLocked}
                         difficulty={gameState.difficulty}
                         vetoesRemaining={gameState.vetoesRemaining}

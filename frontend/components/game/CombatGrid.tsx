@@ -40,7 +40,7 @@ const Cell = React.memo(function Cell({
             onClick={onClick}
             disabled={!canClick || isHit || isMiss}
             className={cn(
-                "w-8 h-8 sm:w-10 sm:h-10 border border-white/5 relative flex items-center justify-center transition-all duration-200",
+                "w-7 h-7 sm:w-8 sm:h-8 2xl:w-10 2xl:h-10 border border-white/5 relative flex items-center justify-center transition-all duration-200",
                 canClick && isEmpty && "hover:bg-primary/20 hover:border-primary/50 cursor-crosshair",
                 !canClick && "cursor-default",
                 isShip && !isEnemy && "bg-primary/30 border-primary/40",
@@ -127,11 +127,11 @@ function GridWithLabels({
             <div className="flex">
                 {/* Row labels */}
                 <div className="flex flex-col">
-                    <div className="w-6 h-8 sm:h-10" /> {/* Corner spacer */}
+                    <div className="w-6 h-7 sm:h-8 2xl:h-10" /> {/* Corner spacer */}
                     {Array.from({ length: GRID_SIZE }).map((_, i) => (
                         <div
                             key={i}
-                            className="w-6 h-8 sm:h-10 flex items-center justify-center text-xs text-zinc-500 font-mono"
+                            className="w-6 h-7 sm:h-8 2xl:h-10 flex items-center justify-center text-xs text-zinc-500 font-mono"
                         >
                             {i + 1}
                         </div>
@@ -144,7 +144,7 @@ function GridWithLabels({
                         {LABELS.map((label) => (
                             <div
                                 key={label}
-                                className="w-8 h-6 sm:w-10 flex items-center justify-center text-xs text-zinc-500 font-mono"
+                                className="w-7 h-6 sm:w-8 2xl:w-10 flex items-center justify-center text-xs text-zinc-500 font-mono"
                             >
                                 {label}
                             </div>

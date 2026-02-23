@@ -843,6 +843,12 @@ async fn handle_client_message(
                 }];
             };
 
+            if game.status == crate::state::GameStatus::Finished {
+                return vec![ServerMessage::Error {
+                    message: "Game has already ended".to_string(),
+                }];
+            }
+
             let player = if game.player1.id == pid {
                 &mut game.player1
             } else if game.player2.as_ref().map(|p| p.id) == Some(pid) {
@@ -956,6 +962,12 @@ async fn handle_client_message(
                     message: "Game not found".to_string(),
                 }];
             };
+
+            if game.status == crate::state::GameStatus::Finished {
+                return vec![ServerMessage::Error {
+                    message: "Game has already ended".to_string(),
+                }];
+            }
 
             let player = if game.player1.id == pid {
                 &mut game.player1

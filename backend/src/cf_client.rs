@@ -122,7 +122,7 @@ impl CFClient {
         index: &str,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let url = format!(
-            "https://codeforces.com/api/user.status?handle={}&from=1&count=10",
+            "https://codeforces.com/api/user.status?handle={}&from=1&count=50",
             handle
         );
         let resp = self

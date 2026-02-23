@@ -23,6 +23,7 @@ interface RatedProblem { //cleansed problem we use
 const problemCache: Map<number, RatedProblem[]> = new Map(); // Cache now strictly typed!
 
 interface ProblemPanelProps {
+    cfHandle: string;
     isLocked: boolean;
     difficulty: number;
     vetoesRemaining: number;
@@ -35,6 +36,7 @@ interface ProblemPanelProps {
 import { useSound } from "@/context/SoundContext";
 
 export function ProblemPanel({
+    cfHandle,
     isLocked,
     difficulty,
     vetoesRemaining,
@@ -101,7 +103,7 @@ export function ProblemPanel({
                     if (p.rating) {
                         const ratedP = p as RatedProblem;
                         const existing = byRating.get(p.rating) || [];
-                        if (existing.length < 500) { // Cap at 500 per rating
+                        if (existing.length < 1000) { // Cap at 1000 per rating
                             existing.push(ratedP);
                             byRating.set(p.rating, existing);
                         }
@@ -120,8 +122,26 @@ export function ProblemPanel({
                 throw new Error(`No problems found at rating ${difficulty}`);
             }
 
+            // Fetch user's entire solve history to deduplicate
+            const userHistoryRes = await fetch(`https://codeforces.com/api/user.status?handle=${cfHandle}`);
+            let solvedSet = new Set<string>();
+            if (userHistoryRes.ok) {
+                const historyData = await userHistoryRes.json();
+                if (historyData.status === "OK") {
+                    historyData.result.forEach((sub: any) => {
+                        if (sub.verdict === "OK" && sub.problem) {
+                            solvedSet.add(`${sub.problem.contestId}-${sub.problem.index}`);
+                        }
+                    });
+                }
+            }
+
+            // Filter out problems the user has already solved
+            const unseenProblems = problems.filter(p => !solvedSet.has(`${p.contestId}-${p.index}`));
+            const poolToUse = unseenProblems.length > 0 ? unseenProblems : problems; // Fallback to full pool if they magically solved all 1000
+
             // Pick a random one from cache
-            const randomProblem = problems[Math.floor(Math.random() * problems.length)];
+            const randomProblem = poolToUse[Math.floor(Math.random() * poolToUse.length)];
             setProblem(randomProblem);
         } catch (error) {
             console.error("Failed to fetch problem:", error);
@@ -175,7 +195,7 @@ export function ProblemPanel({
     const handleVerify = async () => {
         if (!problem || verifyCooldown > 0) return;
         setVerifying(true);
-        setVerifyCooldown(30);
+        setVerifyCooldown(10); // Match backend's 10-second cooldown
         try {
             onSolve(problem.contestId, problem.index);
             toast.info("Verifying submission...");
