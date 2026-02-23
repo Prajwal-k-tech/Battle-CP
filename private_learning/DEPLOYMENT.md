@@ -14,68 +14,69 @@ This guide covers deploying Battle CP to production environments.
 
 ## 🏆 RECOMMENDED: Vercel (Frontend) + Azure Container Apps (Backend)
 
-**Best for**: Students with Azure for Students ($100 credits), easiest Docker setup, reliable uptime, automatic HTTPS.
+## 🏆 RECOMMENDED: Vercel (Frontend) + Azure Container Apps (Backend)
+
+**Best for**: Students with Azure for Students ($100 credits), reliable uptime, automatic HTTPS.
 
 ### Why this stack?
 - You already have **Vercel** for the frontend (free).
-- **Azure Container Apps** is Azure's modern, serverless container platform. It natively connects to your GitHub repo, automatically builds your `backend/Dockerfile`, and deploys it **without** you needing to manually set up a clunky Container Registry.
-- **WebSockets** are supported out-of-the-box.
-- The $100 student credits will easily cover the costs.
+- **Azure Container Apps** easily hosts your `backend/Dockerfile`.
+- Due to strict restrictions on Azure for Students accounts (where Entra ID permissions are missing, and cloud builders are disabled), **deploying via GitHub Actions is not possible**. We must build the Docker container locally and push it.
 
-### Step 1: Create the Container App in Azure
+### Prerequisites (Once per computer)
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and ensure it is running.
+2. Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli).
+3. Open a terminal and run `az login` to authenticate with your Azure account.
 
-1. Go to the [Azure Portal](https://portal.azure.com/) and sign in.
-2. In the top search bar, search for **Container Apps** *(Do NOT select App Services)*.
-3. Click **+ Create**.
-4. **Basics Tab**:
-   - **Subscription**: Your Azure for Students subscription.
-   - **Resource Group**: Click "Create new" and enter `battlecp-rg`.
-   - **Container App Name**: Choose a globally unique name, e.g., `battlecp-backend`.
-   - **Region**: Choose the region closest to your users.
-   - **Container Apps Environment**: Leave as default (it will create a new one automatically).
-5. **Container Tab** *(The Magic Step!)*:
-   - Check the box for **Use image from source code** (or "Use code from a repository").
-   - Authenticate with your GitHub account.
-   - **Organization**: Your GitHub username.
-   - **Repository**: `Battle-CP`
-   - **Branch**: `main`
-   - **Build context**: `backend/`
-   - **Dockerfile path**: `backend/Dockerfile`
-6. **Ingress Tab** *(CRITICAL: This enables WebSockets)*:
-   - **Enable Ingress**: `Yes`
-   - **Ingress traffic**: `Accepting traffic from anywhere`
-   - **Target port**: `3000`
-7. Click **Review + Create**, then **Create**. 
+### Step 1: Initial Azure Setup (Run Once)
+Create the Container Registry and App in your Azure account. Run these commands sequentially in your terminal:
 
-*Azure will now automatically create a GitHub Actions workflow in your repo that builds the Dockerfile and deploys it!*
+```bash
+# 1. Create a Resource Group
+az group create --name battlecp-rg --location centralindia
 
-### Step 2: Set Environment Variables
+# 2. Create the Container Registry
+az acr create --resource-group battlecp-rg --name battlecpcr --sku Basic --admin-enabled true
 
-Once the deployment finishes and the resource is created:
-1. Go to your new Container App resource in the Azure Portal.
-2. In the left sidebar, click **Containers**, then click **Edit and deploy**.
-3. Click on your container image name.
-4. Scroll down to **Environment Variables** and add:
-   - Name: `PORT`, Value: `3000`
-   - Name: `ALLOWED_ORIGINS`, Value: `https://your-vercel-domain.vercel.app` *(Replace with your actual Vercel URL)*
-5. Click **Save**, then **Create** (this restarts the container with the new variables).
+# 3. Create a Container Apps Environment
+az containerapp env create --name battlecp-backend-env --resource-group battlecp-rg --location centralindia
+
+# 4. Create the empty Container App
+az containerapp create \
+  --name battlecp-backend \
+  --resource-group battlecp-rg \
+  --environment battlecp-backend-env \
+  --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
+  --target-port 3000 \
+  --ingress external
+```
+
+### Step 2: Deploy Code to Azure
+We have created an automation script to make this a 1-click process for future code updates.
+
+Whenever you change code in the `backend/` directory, just open a terminal in the project root and run:
+
+```bash
+./deploy_backend.sh
+```
+
+*(This script securely logs into Azure, runs `sudo docker build`, pushes the image to your private registry, and restarts your live API).*
 
 ### Step 3: Update Frontend Environment Variables
-
-1. On your Container App's **Overview** page, copy the **Application Url** (e.g., `https://battlecp-backend.some-random-words.eastus.azurecontainerapps.io`).
-2. Go back to your [Vercel Dashboard](https://vercel.com) -> Select your project -> **Settings** -> **Environment Variables**.
-3. Update the two variables to point to your new Azure backend URL:
+1. Run `az containerapp show -n battlecp-backend -g battlecp-rg --query properties.configuration.ingress.fqdn -o tsv` to get your live URL.
+2. Go back to your [Vercel Dashboard](https://vercel.com) -> Select `Battle-CP` -> **Settings** -> **Environment Variables**.
+3. Update the keys to point to the new Azure URL:
    ```env
-   NEXT_PUBLIC_API_URL=https://battlecp-backend.some-random-words...
-   NEXT_PUBLIC_WS_URL=wss://battlecp-backend.some-random-words...
+   NEXT_PUBLIC_API_URL=https://<YOUR_AZURE_FQDN>
+   NEXT_PUBLIC_WS_URL=wss://<YOUR_AZURE_FQDN>
    ```
    *(Note: Make sure the WS URL uses `wss://` and HTTP uses `https://`)*
-4. Go to the **Deployments** tab and click **Redeploy** on the latest build.
+4. Go to **Deployments** and click **Redeploy**.
 
 ### Step 4: Test
 Open your Vercel URL. Try creating a game. Both sides will securely connect via Azure-powered WebSockets!
 
-**Cost**: $0 out of pocket (Vercel free tier + Azure $100 credits covers the B1 plan for ~7.5 months, or switch to F1 free tier laterally).
+**Cost**: $0 out of pocket (Vercel free tier + Azure $100 credits).
 
 ---
 
