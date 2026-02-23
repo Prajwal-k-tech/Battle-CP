@@ -12,17 +12,9 @@ if [ -z "$PASSWORD" ] || [ -z "$USERNAME" ]; then
     exit 1
 fi
 
-# Login to Docker
-echo "🐳 Logging into Docker registry..."
-echo $PASSWORD | sudo docker login battlecpcr.azurecr.io -u $USERNAME --password-stdin
-
-# Build the Docker image
-echo "🔨 Building Rust Docker image (this may take a few minutes)..."
-sudo docker build -t battlecpcr.azurecr.io/battlecp-backend:latest ./backend
-
-# Push the Docker image
-echo "☁️ Pushing image to Azure..."
-sudo docker push battlecpcr.azurecr.io/battlecp-backend:latest
+# Build and Push the Docker image using ACR
+echo "🔨 Building and pushing Rust Docker image via Azure (this may take a few minutes)..."
+az acr build --registry battlecpcr --image battlecp-backend:latest ./backend
 
 # Update the Container App
 echo "🔄 Updating Azure Container App to use the new image..."
