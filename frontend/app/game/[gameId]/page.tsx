@@ -123,6 +123,10 @@ function GameContent({
         playShipsConfirmed();
     };
 
+    // Bug 8 fix: Merge reconnect ships from gameState with local ships state
+    // On reconnect, useGameSocket sets gameState.myShips from YourShips message
+    const effectiveMyShips = gameState.myShips.length > 0 ? gameState.myShips : myShips;
+
     const handleFire = (x: number, y: number) => {
         if (!gameState.isLocked) {
             fire(x, y);
@@ -292,7 +296,7 @@ function GameContent({
                         <CombatGrid
                             myGrid={gameState.myGrid}
                             enemyGrid={gameState.enemyGrid}
-                            myShips={myShips}
+                            myShips={effectiveMyShips}
                             onFire={handleFire}
                             canFire={!gameState.isLocked}
                         />

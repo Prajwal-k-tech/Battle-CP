@@ -1,35 +1,40 @@
-use serde::{Deserialize, Serialize}; 
-use uuid::Uuid; 
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 //read
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientMessage {
-    JoinGame { //join a game + players cf handle
+    JoinGame {
+        //join a game + players cf handle
         player_id: Uuid,
         cf_handle: String,
     },
-    PlaceShips { //placement of ships
+    PlaceShips {
+        //placement of ships
         ships: Vec<ShipPlacement>,
     },
-    Fire { //where in the grid you fire 
+    Fire {
+        //where in the grid you fire
         x: usize,
         y: usize,
     },
-    SolveCP { //contest id + problem index shows which q to solve
+    SolveCP {
+        //contest id + problem index shows which q to solve
         contest_id: i32,
         problem_index: String,
     },
-    Veto, //veto request, type only 
+    Veto, //veto request, type only
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
-pub enum ServerMessage {//handles server messages
+pub enum ServerMessage {
+    //handles server messages
     GameJoined {
-        //player successfully joined the game + lobby settings 
+        //player successfully joined the game + lobby settings
         game_id: Uuid,
         player_id: Uuid,
-        difficulty: u32, 
-        max_heat: u32,   
+        difficulty: u32,
+        max_heat: u32,
         max_vetoes: u32,
     },
     PlayerJoined {
@@ -42,7 +47,8 @@ pub enum ServerMessage {//handles server messages
     GameStart,
 
     //Combat Phase
-    GameUpdate { //every tick you get an update on these game stats
+    GameUpdate {
+        //every tick you get an update on these game stats
         status: String,
         is_active: bool,
         heat: u32,
@@ -63,18 +69,14 @@ pub enum ServerMessage {//handles server messages
         player_id: Uuid, //whatevers players weapons get lcoked
     },
     WeaponsUnlocked {
-        player_id: Uuid, 
-        reason: String,  //either "solved" or "veto"
+        player_id: Uuid,
+        reason: String, //either "solved" or "veto"
     },
 
-    GameOver{
+    GameOver {
         winner_id: Option<Uuid>,
         reason: String,
-        // Stats for the receiving player
-        your_shots_hit: u32,
-        your_shots_missed: u32,
-        your_ships_sunk: u32,
-        your_problems_solved: u32,
+        // Stats removed: frontend tracks these locally from ShotResult/WeaponsUnlocked events
     },
 
     // Errors
@@ -99,4 +101,4 @@ pub struct ShipPlacement {
     pub size: u8,
     pub vertical: bool,
 }
-//this file describes all the json messages between client and server 
+//this file describes all the json messages between client and server

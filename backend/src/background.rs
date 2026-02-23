@@ -10,6 +10,32 @@ pub async fn start_global_ticker(state: AppState) {
         for game in games.values_mut() {
             // Periodic State Sync (Every 1 second for perfect timer sync)
             let _ = game.tx.send(GameEvent::Tick);
+
+            // Bug 4: Lobby timeout — if P2 doesn't join within 5 minutes
+            if game.status == GameStatus::Waiting {
+                if game.created_at.elapsed() >= std::time::Duration::from_secs(300) {
+                    game.status = GameStatus::Finished;
+                    game.finished_at = Some(std::time::Instant::now());
+                    let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
+                        winner_id: None,
+                        reason: "LobbyTimeout".to_string(),
+                    }));
+                    tracing::info!("Game {:?} lobby timed out (5 min)", game.id);
+                }
+            }
+
+            // Bug 5: Placement timeout — if ships not placed within 10 minutes
+            if game.status == GameStatus::PlacingShips {
+                if game.created_at.elapsed() >= std::time::Duration::from_secs(600) {
+                    game.status = GameStatus::Finished;
+                    game.finished_at = Some(std::time::Instant::now());
+                    let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
+                        winner_id: None,
+                        reason: "PlacementTimeout".to_string(),
+                    }));
+                    tracing::info!("Game {:?} placement timed out (10 min)", game.id);
+                }
+            }
             if game.status == GameStatus::Playing || game.status == GameStatus::SuddenDeath {
                 // Check veto timer expiry for both players
                 let veto_durations = game.config.veto_penalties;
@@ -74,28 +100,14 @@ pub async fn start_global_ticker(state: AppState) {
                                 let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
                                     winner_id: Some(game.player1.id),
                                     reason: "Timeout - More ships remaining".to_string(),
-                                    // Stats for player1 (winner)
-                                    your_shots_hit: game.player1.stats.cells_hit,
-                                    your_shots_missed: game.player1.stats.cells_missed,
-                                    your_ships_sunk: game.player1.stats.ships_sunk,
-                                    your_problems_solved: game.player1.stats.problems_solved,
                                 }));
                             }
                             TiebreakResult::Player2Wins => {
                                 game.status = GameStatus::Finished;
                                 game.finished_at = Some(std::time::Instant::now());
-                                let p2_stats = game
-                                    .player2
-                                    .as_ref()
-                                    .map(|p| p.stats.clone())
-                                    .unwrap_or_default();
                                 let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
                                     winner_id: game.player2.as_ref().map(|p| p.id),
                                     reason: "Timeout - More ships remaining".to_string(),
-                                    your_shots_hit: p2_stats.cells_hit,
-                                    your_shots_missed: p2_stats.cells_missed,
-                                    your_ships_sunk: p2_stats.ships_sunk,
-                                    your_problems_solved: p2_stats.problems_solved,
                                 }));
                             }
                             TiebreakResult::SuddenDeath => {

@@ -18,9 +18,10 @@ export interface GameState {
     opponentId: string | null;
     opponentConnected: boolean;
 
-    // Placement
+    // Placement / Reconnection
     myShipsPlaced: boolean;
     opponentShipsPlaced: boolean;
+    myShips: ShipPlacement[]; // Bug 8: Ships data for CombatGrid rendering after reconnect
 
     // Combat
     myGrid: CellState[][];      // 10x10 - your ships + opponent hits
@@ -58,6 +59,7 @@ export const initialGameState: GameState = {
 
     myShipsPlaced: false,
     opponentShipsPlaced: false,
+    myShips: [],
 
     myGrid: Array(10).fill(null).map(() => Array(10).fill("empty")),
     enemyGrid: Array(10).fill(null).map(() => Array(10).fill("empty")),
@@ -109,7 +111,7 @@ export type ServerMessage =
     | { type: "WeaponsUnlocked"; player_id: string; reason: string } // "solved" or "veto_expired"
 
     // End
-    | { type: "GameOver"; winner_id: string | null; reason: string; your_shots_hit: number; your_shots_missed: number; your_ships_sunk: number; your_problems_solved: number }
+    | { type: "GameOver"; winner_id: string | null; reason: string }
 
     // Error
     | { type: "Error"; message: string };

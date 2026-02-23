@@ -87,19 +87,10 @@ export default function CreateGamePage() {
                 return;
             }
 
-            // Fallback for demo/development when backend isn't running
-            const fallbackGameId = crypto.randomUUID();
-            const fallbackPlayerId = crypto.randomUUID();
-
-            localStorage.setItem("battlecp_player_id", fallbackPlayerId);
-            localStorage.setItem("battlecp_cf_handle", cfHandle.trim());
-            localStorage.setItem("battlecp_active_game", fallbackGameId);
-
-            toast.warning("Using offline mode (backend unavailable)");
-
-            // Auto-redirect even in fallback mode
-            // Don't set gameId state - it causes a flash of the old UI before redirect
-            router.push(`/game/${fallbackGameId}`);
+            // Bug 7 fix: Show error toast and let user retry instead of creating ghost games
+            toast.error("Failed to create game", {
+                description: error instanceof Error ? error.message : "Please check your connection and try again.",
+            });
         } finally {
             setIsCreating(false);
         }

@@ -170,9 +170,10 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 break;
 
             case "YourShips":
+                // Bug 8 fix: Store ships in myShips for CombatGrid rendering after reconnect
                 setGameState(prev => ({
                     ...prev,
-                    ships: msg.ships,
+                    myShips: msg.ships,
                 }));
                 break;
 
@@ -218,17 +219,25 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
             case "GameOver":
                 // CLEANUP: Clear active game session when game ends
                 localStorage.removeItem("battlecp_active_game");
-                
+
+                // Handle timeout reasons with specific messages
+                if (msg.reason === "LobbyTimeout") {
+                    toast.error("Lobby expired — no opponent joined within 5 minutes.", { id: "lobby-timeout", duration: 10000 });
+                } else if (msg.reason === "PlacementTimeout") {
+                    toast.error("Game start failed — ships were not deployed in time.", { id: "placement-timeout", duration: 10000 });
+                }
+
                 setGameState(prev => ({
                     ...prev,
                     phase: "finished",
                     winnerId: msg.winner_id,
                     gameOverReason: msg.reason,
-                    status: msg.winner_id === prev.playerId ? "VICTORY" : "DEFEAT",
-                    // Use server-provided stats
-                    problemsSolved: msg.your_problems_solved ?? prev.problemsSolved,
-                    enemyShipsSunk: msg.your_ships_sunk ?? prev.enemyShipsSunk,
+                    status: msg.reason === "LobbyTimeout" || msg.reason === "PlacementTimeout"
+                        ? "GAME EXPIRED"
+                        : msg.winner_id === prev.playerId ? "VICTORY" : "DEFEAT",
+                    // Bug 6 fix: Don't override local stats — frontend tracks them accurately
                 }));
+                shouldStopReconnect.current = true; // Don't reconnect after game over
                 break;
 
             case "Error":
@@ -238,17 +247,17 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     lastError: msg.message,
                 }));
                 // If game not found, ended, or full - set flag to prevent reconnection
-                if (msg.message.includes("Game not found") 
-                    || msg.message.includes("not found") 
+                if (msg.message.includes("Game not found")
+                    || msg.message.includes("not found")
                     || msg.message.includes("already ended")
                     || msg.message.includes("Game is full")
                     || msg.message.includes("full")) {
                     setGameNotFound(true);
                     shouldStopReconnect.current = true; // Prevent reconnection attempts
-                    
+
                     // CLEANUP: Clear active game session when game not found/full
                     localStorage.removeItem("battlecp_active_game");
-                    
+
                     if (msg.message.includes("full")) {
                         toast.error("This game is full. Both player slots are occupied.", { id: "game-full" });
                     } else {

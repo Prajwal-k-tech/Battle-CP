@@ -25,6 +25,8 @@ const reasonLabels: Record<string, string> = {
     Timeout: "Time Limit Reached",
     SuddenDeath: "Sudden Death Victory",
     Disconnect: "Opponent Disconnected",
+    LobbyTimeout: "No Opponent Joined (5 min)",
+    PlacementTimeout: "Ships Not Deployed In Time (10 min)",
 };
 
 import { useSound } from "@/context/SoundContext";

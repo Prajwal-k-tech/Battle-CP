@@ -232,27 +232,11 @@ async fn handle_client_message(
                 }
 
                 // Check if player is already in the game (Reconnect)
-                // Support reconnection by EITHER player_id OR cf_handle match
-                let is_p1_by_id = game.player1.id == pid;
-                let is_p1_by_handle = game.player1.cf_handle.eq_ignore_ascii_case(&cf_handle);
-                let is_p2_by_id = game.player2.as_ref().map(|p| p.id) == Some(pid);
-                let is_p2_by_handle = game.player2.as_ref().map(|p| p.cf_handle.eq_ignore_ascii_case(&cf_handle)).unwrap_or(false);
-                
-                let is_p1 = is_p1_by_id || is_p1_by_handle;
-                let is_p2 = is_p2_by_id || is_p2_by_handle;
+                // SECURITY: Only match by player_id — CF handles are public and not auth tokens
+                let is_p1 = game.player1.id == pid;
+                let is_p2 = game.player2.as_ref().map(|p| p.id) == Some(pid);
 
                 if is_p1 || is_p2 {
-                    // Update player_id if reconnecting by handle (new session)
-                    if is_p1 && !is_p1_by_id {
-                        game.player1.id = pid;
-                        tracing::info!("Player 1 reconnected by CF handle: {}", cf_handle);
-                    }
-                    if is_p2 && !is_p2_by_id {
-                        if let Some(ref mut p2) = game.player2 {
-                            p2.id = pid;
-                            tracing::info!("Player 2 reconnected by CF handle: {}", cf_handle);
-                        }
-                    }
                     // RECONNECTION LOGIC
                     let mut msgs = vec![];
 
@@ -306,7 +290,40 @@ async fn handle_client_message(
                         }
                     }
 
-                    // 4. If game started (both placed), send GameStart and Grids
+                    // 4. Tell reconnecting player the opponent is here (Bug 2 fix)
+                    if game.status == crate::state::GameStatus::PlacingShips
+                        || game.status == crate::state::GameStatus::Playing
+                        || game.status == crate::state::GameStatus::SuddenDeath
+                    {
+                        let opponent_id = if is_p1 {
+                            game.player2.as_ref().map(|p| p.id)
+                        } else {
+                            Some(game.player1.id)
+                        };
+                        if let Some(oid) = opponent_id {
+                            msgs.push(ServerMessage::PlayerJoined { player_id: oid });
+                        }
+
+                        // Re-send opponent's ShipsConfirmed if they already placed
+                        let opponent_placed = if is_p1 {
+                            game.player2
+                                .as_ref()
+                                .map(|p| p.ships_placed)
+                                .unwrap_or(false)
+                        } else {
+                            game.player1.ships_placed
+                        };
+                        if opponent_placed {
+                            let oid = if is_p1 {
+                                game.player2.as_ref().unwrap().id
+                            } else {
+                                game.player1.id
+                            };
+                            msgs.push(ServerMessage::ShipsConfirmed { player_id: oid });
+                        }
+                    }
+
+                    // 5. If game started (both placed), send GameStart and Grids
                     if game.status == crate::state::GameStatus::Playing
                         || game.status == crate::state::GameStatus::SuddenDeath
                     {
@@ -374,20 +391,47 @@ async fn handle_client_message(
                             message: "You cannot play against yourself! Use the same browser session to reconnect.".to_string(),
                         }];
                     }
-                    
+
                     // P2 is joining - get P1's ID before joining
                     let p1_id = game.player1.id;
+                    let handle_to_verify = cf_handle.clone();
 
-                    // Verify CF Handle exists immediately (Security Fix)
+                    // Bug 1 fix: Drop write lock BEFORE network call to prevent server-wide deadlock
+                    drop(games);
+
+                    // Verify CF Handle exists (now without holding the lock)
                     let handle_exists = state
                         .cf_client
-                        .verify_user_exists(&cf_handle)
+                        .verify_user_exists(&handle_to_verify)
                         .await
                         .unwrap_or(false); // Fail closed if API error
 
                     if !handle_exists {
                         return vec![ServerMessage::Error {
-                            message: format!("Codeforces handle '{}' not found", cf_handle),
+                            message: format!("Codeforces handle '{}' not found", handle_to_verify),
+                        }];
+                    }
+
+                    // Re-acquire write lock and re-validate game state
+                    let mut games = state.games.write().await;
+                    let game = match games.get_mut(&game_id) {
+                        Some(g) => g,
+                        None => {
+                            return vec![ServerMessage::Error {
+                                message: "Game no longer exists".to_string(),
+                            }]
+                        }
+                    };
+                    // Re-check P2 slot wasn't taken while we were verifying
+                    if game.player2.is_some() {
+                        return vec![ServerMessage::Error {
+                            message: "Game slot was just taken. Please try another game."
+                                .to_string(),
+                        }];
+                    }
+                    if game.status == crate::state::GameStatus::Finished {
+                        return vec![ServerMessage::Error {
+                            message: "Game has already ended".to_string(),
                         }];
                     }
 
@@ -749,23 +793,10 @@ async fn handle_client_message(
 
                     // If game over (all sunk), broadcast
                     if all_sunk {
-                        // Get stats for the shooter (pid)
-                        let shooter_stats = if game.player1.id == pid {
-                            game.player1.stats.clone()
-                        } else {
-                            game.player2
-                                .as_ref()
-                                .map(|p| p.stats.clone())
-                                .unwrap_or_default()
-                        };
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::GameOver {
                                 winner_id: Some(pid),
                                 reason: "AllShipsSunk".to_string(),
-                                your_shots_hit: shooter_stats.cells_hit,
-                                your_shots_missed: shooter_stats.cells_missed,
-                                your_ships_sunk: shooter_stats.ships_sunk,
-                                your_problems_solved: shooter_stats.problems_solved,
                             },
                         ));
                     }
@@ -774,27 +805,17 @@ async fn handle_client_message(
                     if is_sudden_death && result == "Hit" {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let shooter_stats = if game.player1.id == pid {
-                            game.player1.stats.clone()
-                        } else {
-                            game.player2
-                                .as_ref()
-                                .map(|p| p.stats.clone())
-                                .unwrap_or_default()
-                        };
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::GameOver {
                                 winner_id: Some(pid),
                                 reason: "SuddenDeath - First hit wins!".to_string(),
-                                your_shots_hit: shooter_stats.cells_hit,
-                                your_shots_missed: shooter_stats.cells_missed,
-                                your_ships_sunk: shooter_stats.ships_sunk,
-                                your_problems_solved: shooter_stats.problems_solved,
                             },
                         ));
                     }
 
-                    vec![shot_result]
+                    // Bug 9 fix: Don't return ShotResult directly — broadcast handles it
+                    // Returning it here caused the shooter to receive it twice (double toasts)
+                    vec![]
                 }
                 Err(e) => vec![ServerMessage::Error {
                     message: e.to_string(),

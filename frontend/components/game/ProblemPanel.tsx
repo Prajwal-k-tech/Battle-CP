@@ -101,7 +101,7 @@ export function ProblemPanel({
                     if (p.rating) {
                         const ratedP = p as RatedProblem;
                         const existing = byRating.get(p.rating) || [];
-                        if (existing.length < 100) { // Cap at 100 per rating
+                        if (existing.length < 500) { // Cap at 500 per rating
                             existing.push(ratedP);
                             byRating.set(p.rating, existing);
                         }
