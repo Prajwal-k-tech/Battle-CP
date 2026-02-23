@@ -58,7 +58,7 @@ pub async fn create_game(
             .map(|m| m.clamp(1, 120)) // Clamp to 1-120 minutes first
             .map(|m| (m as u64).saturating_mul(60)) // Safe conversion to u64
             .unwrap_or(45 * 60)
-            .clamp(300, 7200), // Final clamp to 5-120 minutes in seconds
+            .clamp(60, 7200), // Final clamp to 1-120 minutes in seconds
         veto_penalties,
         // Default max_vetoes to 3
         ..GameConfig::default()
