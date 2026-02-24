@@ -95,5 +95,5 @@ async fn test_ws_connection_and_flow() {
     // Send a PlaceShips message (assuming valid payload, but we can verify it reaches the logic)
     // We won't construct complex ships here to keep it simple, just verifying the socket stays open.
 
-    println!("WebSocket test passed!");
+    tracing::info!("WebSocket test passed!");
 }

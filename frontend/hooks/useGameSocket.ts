@@ -280,7 +280,6 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
         const connect = () => {
             // Check guard again before connecting
             if (isConnecting.current) {
-                console.log("[WS] connect() called but isConnecting is true, bailing");
                 return;
             }
             isConnecting.current = true;

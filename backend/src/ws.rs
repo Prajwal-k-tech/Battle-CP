@@ -992,6 +992,13 @@ async fn handle_client_message(
                     // Re-acquire write lock to update state
                     let mut games = state.games.write().await;
                     if let Some(game) = games.get_mut(&game_id) {
+                        // Guard: game may have ended while the CF API call was in-flight
+                        // (opponent sank all ships, SD first-hit, or timeout occurred).
+                        // Discard the result — mutating dead game state is meaningless.
+                        if game.status == crate::state::GameStatus::Finished {
+                            return vec![];
+                        }
+
                         let player = if game.player1.id == pid {
                             &mut game.player1
                         } else if let Some(ref mut p) = game.player2 {
@@ -999,6 +1006,13 @@ async fn handle_client_message(
                         } else {
                             return vec![];
                         };
+
+                        // Guard: player may have already been unlocked by the background
+                        // ticker racing with this response (unlikely but defensive)
+                        if !player.is_locked {
+                            return vec![];
+                        }
+
                         player.unlock_weapons();
                         player.stats.problems_solved += 1;
 
