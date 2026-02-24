@@ -5,7 +5,7 @@ Destroy the enemy fleet before time runs out. If time expires, the player with t
 
 ## 2. Phase 1: Deployment
 - Place your 5 ships (Carrier, Battleship, Cruiser, Submarine, Destroyer) on the 10x10 grid.
-- Ships cannot overlap or touch edges (standard rules).
+- Ships cannot overlap. Touching other ships (adjacent placement) is allowed.
 - Both players must confirm placement to begin combat.
 
 ## 3. Phase 2: Combat & Heat

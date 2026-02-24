@@ -184,38 +184,11 @@ impl Player {
             return Err("Ship extends beyond grid boundary");
         }
 
-        // Check for overlap AND adjacency
-        // Standard Battleship: ships cannot touch each other (not even diagonally).
-        // The frontend enforces this too, but we re-validate server-side to block
-        // crafted WebSocket messages that bypass the client validation.
+        // Validate no overlap. Ships may be adjacent — only overlap is forbidden.
         for i in 0..ship.size as usize {
             let (cx, cy) = if vertical { (x, y + i) } else { (x + i, y) };
-            // Check the cell itself
             if self.grid.cells[cy][cx] != CellState::Empty {
                 return Err("Ship overlaps with another ship");
-            }
-            // Check all 8 neighbors for adjacency
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    let nx = cx as i32 + dx;
-                    let ny = cy as i32 + dy;
-                    // Skip cells occupied by THIS ship being placed (future cells)
-                    let is_this_ship_cell = (0..ship.size as usize).any(|j| {
-                        let (sx, sy) = if vertical { (x, y + j) } else { (x + j, y) };
-                        nx == sx as i32 && ny == sy as i32
-                    });
-                    if is_this_ship_cell {
-                        continue;
-                    }
-                    if nx >= 0 && nx < 10 && ny >= 0 && ny < 10 {
-                        if self.grid.cells[ny as usize][nx as usize] != CellState::Empty {
-                            return Err("Ships cannot be adjacent to each other");
-                        }
-                    }
-                }
             }
         }
 

@@ -189,10 +189,16 @@ pub async fn start_global_ticker(state: AppState) {
                             TiebreakResult::SuddenDeath => {
                                 //sudden death to break ties
                                 game.status = GameStatus::SuddenDeath;
-                                //Unlock both players' weapons for sudden death
-                                game.player1.unlock_weapons();
+                                // Unlock heat-locked players only.
+                                // Mid-veto players stay locked — SD is an extension of the game;
+                                // veto timers must continue running.
+                                if game.player1.veto_started_at.is_none() {
+                                    game.player1.unlock_weapons();
+                                }
                                 if let Some(ref mut p2) = game.player2 {
-                                    p2.unlock_weapons();
+                                    if p2.veto_started_at.is_none() {
+                                        p2.unlock_weapons();
+                                    }
                                 }
                                 let _ =
                                     game.tx.send(GameEvent::Message(ServerMessage::GameUpdate {
