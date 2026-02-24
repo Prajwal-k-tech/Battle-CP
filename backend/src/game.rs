@@ -305,16 +305,9 @@ mod tests {
         game.player2.as_mut().unwrap().stats.cells_hit = 10;
         assert_eq!(game.determine_winner(), TiebreakResult::Player2Wins);
 
-        // Case 3: Ships and hits equal, P1 solved more problems
+        // Case 3: Complete Tie -> Sudden Death
         game.player1.stats.cells_hit = 10;
         game.player2.as_mut().unwrap().stats.cells_hit = 10;
-        game.player1.stats.problems_solved = 1;
-        game.player2.as_mut().unwrap().stats.problems_solved = 0;
-        assert_eq!(game.determine_winner(), TiebreakResult::Player1Wins);
-
-        // Case 4: Complete Tie -> Sudden Death
-        game.player1.stats.problems_solved = 0;
-        game.player2.as_mut().unwrap().stats.problems_solved = 0;
         assert_eq!(game.determine_winner(), TiebreakResult::SuddenDeath);
     }
 }

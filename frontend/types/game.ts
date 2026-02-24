@@ -111,7 +111,19 @@ export type ServerMessage =
     | { type: "WeaponsUnlocked"; player_id: string; reason: string } // "solved" or "veto_expired"
 
     // End
-    | { type: "GameOver"; winner_id: string | null; reason: string }
+    | {
+        type: "GameOver";
+        winner_id: string | null;
+        reason: string;
+        // Authoritative stats from server — use these to display correct numbers
+        p1_id: string;
+        p1_ships_sunk: number;
+        p1_cells_hit: number;
+        p1_problems_solved: number;
+        p2_ships_sunk: number;
+        p2_cells_hit: number;
+        p2_problems_solved: number;
+    }
 
     // Error
     | { type: "Error"; message: string };

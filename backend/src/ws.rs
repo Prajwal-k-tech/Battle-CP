@@ -447,7 +447,7 @@ async fn handle_client_message(
                     let result = game.tx.send(crate::state::GameEvent::Message(
                         ServerMessage::PlayerJoined { player_id: pid },
                     ));
-                    println!(
+                    tracing::debug!(
                         "[WS] Broadcast PlayerJoined for {:?} - result: {:?}, subscribers: {}",
                         pid,
                         result.is_ok(),
@@ -794,10 +794,32 @@ async fn handle_client_message(
 
                     // If game over (all sunk), broadcast
                     if all_sunk {
+                        let (p1_ships_sunk, p1_cells_hit, p1_problems_solved) = {
+                            let s = &game.player1.stats;
+                            (s.ships_sunk, s.cells_hit, s.problems_solved)
+                        };
+                        let (p2_ships_sunk, p2_cells_hit, p2_problems_solved) = game
+                            .player2
+                            .as_ref()
+                            .map(|p| {
+                                (
+                                    p.stats.ships_sunk,
+                                    p.stats.cells_hit,
+                                    p.stats.problems_solved,
+                                )
+                            })
+                            .unwrap_or((0, 0, 0));
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::GameOver {
                                 winner_id: Some(pid),
                                 reason: "AllShipsSunk".to_string(),
+                                p1_id: game.player1.id,
+                                p1_ships_sunk,
+                                p1_cells_hit,
+                                p1_problems_solved,
+                                p2_ships_sunk,
+                                p2_cells_hit,
+                                p2_problems_solved,
                             },
                         ));
                     }
@@ -806,10 +828,32 @@ async fn handle_client_message(
                     if is_sudden_death && result == "Hit" {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
+                        let (p1_ships_sunk, p1_cells_hit, p1_problems_solved) = {
+                            let s = &game.player1.stats;
+                            (s.ships_sunk, s.cells_hit, s.problems_solved)
+                        };
+                        let (p2_ships_sunk, p2_cells_hit, p2_problems_solved) = game
+                            .player2
+                            .as_ref()
+                            .map(|p| {
+                                (
+                                    p.stats.ships_sunk,
+                                    p.stats.cells_hit,
+                                    p.stats.problems_solved,
+                                )
+                            })
+                            .unwrap_or((0, 0, 0));
                         let _ = game.tx.send(crate::state::GameEvent::Message(
                             ServerMessage::GameOver {
                                 winner_id: Some(pid),
                                 reason: "SuddenDeath - First hit wins!".to_string(),
+                                p1_id: game.player1.id,
+                                p1_ships_sunk,
+                                p1_cells_hit,
+                                p1_problems_solved,
+                                p2_ships_sunk,
+                                p2_cells_hit,
+                                p2_problems_solved,
                             },
                         ));
                     }

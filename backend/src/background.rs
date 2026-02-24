@@ -19,6 +19,25 @@ pub async fn start_global_ticker(state: AppState) {
                     let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
                         winner_id: None,
                         reason: "LobbyTimeout".to_string(),
+                        p1_id: game.player1.id,
+                        p1_ships_sunk: game.player1.stats.ships_sunk,
+                        p1_cells_hit: game.player1.stats.cells_hit,
+                        p1_problems_solved: game.player1.stats.problems_solved,
+                        p2_ships_sunk: game
+                            .player2
+                            .as_ref()
+                            .map(|p| p.stats.ships_sunk)
+                            .unwrap_or(0),
+                        p2_cells_hit: game
+                            .player2
+                            .as_ref()
+                            .map(|p| p.stats.cells_hit)
+                            .unwrap_or(0),
+                        p2_problems_solved: game
+                            .player2
+                            .as_ref()
+                            .map(|p| p.stats.problems_solved)
+                            .unwrap_or(0),
                     }));
                     tracing::info!("Game {:?} lobby timed out (5 min)", game.id);
                 }
@@ -32,6 +51,25 @@ pub async fn start_global_ticker(state: AppState) {
                     let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
                         winner_id: None,
                         reason: "PlacementTimeout".to_string(),
+                        p1_id: game.player1.id,
+                        p1_ships_sunk: game.player1.stats.ships_sunk,
+                        p1_cells_hit: game.player1.stats.cells_hit,
+                        p1_problems_solved: game.player1.stats.problems_solved,
+                        p2_ships_sunk: game
+                            .player2
+                            .as_ref()
+                            .map(|p| p.stats.ships_sunk)
+                            .unwrap_or(0),
+                        p2_cells_hit: game
+                            .player2
+                            .as_ref()
+                            .map(|p| p.stats.cells_hit)
+                            .unwrap_or(0),
+                        p2_problems_solved: game
+                            .player2
+                            .as_ref()
+                            .map(|p| p.stats.problems_solved)
+                            .unwrap_or(0),
                     }));
                     tracing::info!("Game {:?} placement timed out (10 min)", game.id);
                 }
@@ -100,6 +138,25 @@ pub async fn start_global_ticker(state: AppState) {
                                 let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
                                     winner_id: Some(game.player1.id),
                                     reason: "Timeout - More ships remaining".to_string(),
+                                    p1_id: game.player1.id,
+                                    p1_ships_sunk: game.player1.stats.ships_sunk,
+                                    p1_cells_hit: game.player1.stats.cells_hit,
+                                    p1_problems_solved: game.player1.stats.problems_solved,
+                                    p2_ships_sunk: game
+                                        .player2
+                                        .as_ref()
+                                        .map(|p| p.stats.ships_sunk)
+                                        .unwrap_or(0),
+                                    p2_cells_hit: game
+                                        .player2
+                                        .as_ref()
+                                        .map(|p| p.stats.cells_hit)
+                                        .unwrap_or(0),
+                                    p2_problems_solved: game
+                                        .player2
+                                        .as_ref()
+                                        .map(|p| p.stats.problems_solved)
+                                        .unwrap_or(0),
                                 }));
                             }
                             TiebreakResult::Player2Wins => {
@@ -108,6 +165,25 @@ pub async fn start_global_ticker(state: AppState) {
                                 let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
                                     winner_id: game.player2.as_ref().map(|p| p.id),
                                     reason: "Timeout - More ships remaining".to_string(),
+                                    p1_id: game.player1.id,
+                                    p1_ships_sunk: game.player1.stats.ships_sunk,
+                                    p1_cells_hit: game.player1.stats.cells_hit,
+                                    p1_problems_solved: game.player1.stats.problems_solved,
+                                    p2_ships_sunk: game
+                                        .player2
+                                        .as_ref()
+                                        .map(|p| p.stats.ships_sunk)
+                                        .unwrap_or(0),
+                                    p2_cells_hit: game
+                                        .player2
+                                        .as_ref()
+                                        .map(|p| p.stats.cells_hit)
+                                        .unwrap_or(0),
+                                    p2_problems_solved: game
+                                        .player2
+                                        .as_ref()
+                                        .map(|p| p.stats.problems_solved)
+                                        .unwrap_or(0),
                                 }));
                             }
                             TiebreakResult::SuddenDeath => {

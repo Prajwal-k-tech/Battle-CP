@@ -76,7 +76,14 @@ pub enum ServerMessage {
     GameOver {
         winner_id: Option<Uuid>,
         reason: String,
-        // Stats removed: frontend tracks these locally from ShotResult/WeaponsUnlocked events
+        // Full stats for both players — each client reads their own by player_id
+        p1_id: Uuid,
+        p1_ships_sunk: u32,
+        p1_cells_hit: u32,
+        p1_problems_solved: u32,
+        p2_ships_sunk: u32,
+        p2_cells_hit: u32,
+        p2_problems_solved: u32,
     },
 
     // Errors

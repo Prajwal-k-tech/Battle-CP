@@ -227,16 +227,25 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     toast.error("Game start failed — ships were not deployed in time.", { id: "placement-timeout", duration: 10000 });
                 }
 
-                setGameState(prev => ({
-                    ...prev,
-                    phase: "finished",
-                    winnerId: msg.winner_id,
-                    gameOverReason: msg.reason,
-                    status: msg.reason === "LobbyTimeout" || msg.reason === "PlacementTimeout"
-                        ? "GAME EXPIRED"
-                        : msg.winner_id === prev.playerId ? "VICTORY" : "DEFEAT",
-                    // Bug 6 fix: Don't override local stats — frontend tracks them accurately
-                }));
+                setGameState(prev => {
+                    // Determine which stats belong to this player using the authoritative p1_id
+                    const isP1 = prev.playerId === msg.p1_id;
+                    const myShipsSunk = isP1 ? msg.p1_ships_sunk : msg.p2_ships_sunk;
+                    const myProblemsSolved = isP1 ? msg.p1_problems_solved : msg.p2_problems_solved;
+
+                    return {
+                        ...prev,
+                        phase: "finished",
+                        winnerId: msg.winner_id,
+                        gameOverReason: msg.reason,
+                        status: msg.reason === "LobbyTimeout" || msg.reason === "PlacementTimeout"
+                            ? "GAME EXPIRED"
+                            : msg.winner_id === prev.playerId ? "VICTORY" : "DEFEAT",
+                        // Override with authoritative server stats — these are always correct
+                        enemyShipsSunk: myShipsSunk,
+                        problemsSolved: myProblemsSolved,
+                    };
+                });
                 shouldStopReconnect.current = true; // Don't reconnect after game over
                 break;
 
