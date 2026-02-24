@@ -49,6 +49,9 @@ pub struct Submission {
     id: i64,
     pub verdict: Option<String>,
     pub problem: Problem,
+    /// Unix timestamp (seconds) when submission was created on Codeforces
+    #[serde(rename = "creationTimeSeconds")]
+    pub creation_time_seconds: Option<i64>,
 }
 
 impl Default for CFClient {
@@ -120,13 +123,15 @@ impl CFClient {
         handle: &str,
         contest_id: i32,
         index: &str,
+        locked_since_unix: Option<u64>,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // Fetch last 50 submissions — CF API returns newest first.
         // With active_problem commitment, the player's solve is always recent
         // so 50 is more than sufficient for verification.
+        let encoded_handle = urlencoding::encode(handle);
         let url = format!(
             "https://codeforces.com/api/user.status?handle={}&from=1&count=50",
-            handle
+            encoded_handle
         );
         let resp = self
             .client
@@ -146,6 +151,18 @@ impl CFClient {
                     && submission.problem.contest_id == Some(contest_id)
                     && submission.problem.index == index
                 {
+                    // SECURITY: Verify submission was created AFTER the player got locked.
+                    // This prevents pre-solving exploits where a player submits a solution
+                    // before the game starts and then commits that problem when locked.
+                    if let Some(lock_time) = locked_since_unix {
+                        if let Some(creation_time) = submission.creation_time_seconds {
+                            // Allow 30 seconds of clock skew tolerance
+                            if (creation_time as u64) + 30 < lock_time {
+                                continue; // Submission is too old, skip it
+                            }
+                        }
+                        // If creation_time is missing, accept it (defensive)
+                    }
                     return Ok(true);
                 }
             }
@@ -170,7 +187,8 @@ impl CFClient {
             }
         }
 
-        let url = format!("https://codeforces.com/api/user.info?handles={}", handle);
+        let encoded_handle = urlencoding::encode(handle);
+        let url = format!("https://codeforces.com/api/user.info?handles={}", encoded_handle);
 
         let resp = self.client.get(&url).send().await?;
         let mut exists = false;

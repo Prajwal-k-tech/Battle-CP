@@ -199,6 +199,41 @@ pub async fn start_global_ticker(state: AppState) {
                             }
                         }
                     }
+
+                    // SUDDEN DEATH TIMEOUT: 10 minutes max to prevent infinite games
+                    // (e.g., both players locked with no vetoes remaining)
+                    const SUDDEN_DEATH_TIMEOUT_SECS: u64 = 600; // 10 minutes
+                    if game.status == GameStatus::SuddenDeath
+                        && start.elapsed().as_secs()
+                            >= game.config.game_duration_secs + SUDDEN_DEATH_TIMEOUT_SECS
+                    {
+                        game.status = GameStatus::Finished;
+                        game.finished_at = Some(std::time::Instant::now());
+                        let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
+                            winner_id: None,
+                            reason: "SuddenDeathTimeout".to_string(),
+                            p1_id: game.player1.id,
+                            p1_ships_sunk: game.player1.stats.ships_sunk,
+                            p1_cells_hit: game.player1.stats.cells_hit,
+                            p1_problems_solved: game.player1.stats.problems_solved,
+                            p2_ships_sunk: game
+                                .player2
+                                .as_ref()
+                                .map(|p| p.stats.ships_sunk)
+                                .unwrap_or(0),
+                            p2_cells_hit: game
+                                .player2
+                                .as_ref()
+                                .map(|p| p.stats.cells_hit)
+                                .unwrap_or(0),
+                            p2_problems_solved: game
+                                .player2
+                                .as_ref()
+                                .map(|p| p.stats.problems_solved)
+                                .unwrap_or(0),
+                        }));
+                        tracing::info!("Game {:?} sudden death timed out (10 min)", game.id);
+                    }
                 }
             }
         }
@@ -219,8 +254,10 @@ pub async fn start_global_ticker(state: AppState) {
                 // If waiting for P2, keep only if within threshold
                 game.created_at.elapsed() < waiting_cleanup_threshold
             } else if game.status == GameStatus::PlacingShips {
-                // If stuck in placement phase, clean up after threshold
-                game.created_at.elapsed() < placing_cleanup_threshold
+                // If stuck in placement phase, clean up after threshold from when placement started
+                game.placement_started_at
+                    .map(|ps| ps.elapsed() < placing_cleanup_threshold)
+                    .unwrap_or_else(|| game.created_at.elapsed() < placing_cleanup_threshold)
             } else {
                 // Keep active/playing games (Playing, SuddenDeath)
                 true

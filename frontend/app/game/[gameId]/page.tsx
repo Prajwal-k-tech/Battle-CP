@@ -144,10 +144,32 @@ function GameContent({
 
     // Track previous grid to detect new shots for sound effects
     const prevEnemyGridRef = useRef<typeof gameState.enemyGrid | null>(null);
+    // Track whether we just received a GridSync (reconnect) to suppress sounds
+    const justSyncedRef = useRef(false);
+
+    // Mark GridSync received to suppress sound effects
+    useEffect(() => {
+        // If the grid changed significantly (GridSync), suppress sounds
+        if (prevEnemyGridRef.current !== null) {
+            const prevHits = prevEnemyGridRef.current.flat().filter(c => c === "hit").length;
+            const currHits = gameState.enemyGrid.flat().filter(c => c === "hit").length;
+            // If more than 1 cell changed at once, it's a GridSync, not a single shot
+            if (Math.abs(currHits - prevHits) > 1) {
+                justSyncedRef.current = true;
+            }
+        }
+    }, [gameState.enemyGrid]);
 
     useEffect(() => {
         if (prevEnemyGridRef.current === null) {
             // First render, just store
+            prevEnemyGridRef.current = gameState.enemyGrid;
+            return;
+        }
+
+        // Skip sound effects if this was a GridSync (reconnect bulk update)
+        if (justSyncedRef.current) {
+            justSyncedRef.current = false;
             prevEnemyGridRef.current = gameState.enemyGrid;
             return;
         }

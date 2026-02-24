@@ -102,6 +102,20 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     // This prevents third players (who got rejected) from transitioning phases
                     if (!prev.playerId) return prev;
 
+                    // SAFETY: Detect game ended from status if GameOver was missed (broadcast lag)
+                    if (msg.status === "Finished" && prev.phase !== "finished") {
+                        // Game ended but we missed the GameOver message.
+                        // Transition to finished to prevent stuck state.
+                        localStorage.removeItem("battlecp_active_game");
+                        return {
+                            ...prev,
+                            phase: "finished" as const,
+                            status: "GAME OVER",
+                            winnerId: null,
+                            gameOverReason: "Game ended",
+                        };
+                    }
+
                     // Only transit to combat if we are actually playing
                     if (msg.status === "Playing" && (prev.phase === "connecting" || prev.phase === "lobby" || prev.phase === "placement")) {
                         // EXTRA SAFETY: Only transition if ships are placed
@@ -211,6 +225,8 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     toast.error("Lobby expired — no opponent joined within 5 minutes.", { id: "lobby-timeout", duration: 10000 });
                 } else if (msg.reason === "PlacementTimeout") {
                     toast.error("Game start failed — ships were not deployed in time.", { id: "placement-timeout", duration: 10000 });
+                } else if (msg.reason === "SuddenDeathTimeout") {
+                    toast.error("Sudden Death timed out — no player landed a hit in 10 minutes.", { id: "sd-timeout", duration: 10000 });
                 }
 
                 setGameState(prev => {
@@ -224,7 +240,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         phase: "finished",
                         winnerId: msg.winner_id,
                         gameOverReason: msg.reason,
-                        status: msg.reason === "LobbyTimeout" || msg.reason === "PlacementTimeout"
+                        status: msg.reason === "LobbyTimeout" || msg.reason === "PlacementTimeout" || msg.reason === "SuddenDeathTimeout"
                             ? "GAME EXPIRED"
                             : msg.winner_id === prev.playerId ? "VICTORY" : "DEFEAT",
                         // Override with authoritative server stats — these are always correct

@@ -22,8 +22,9 @@ interface VictoryModalProps {
 
 const reasonLabels: Record<string, string> = {
     AllShipsSunk: "All Enemy Ships Destroyed",
-    Timeout: "Time Limit Reached",
-    SuddenDeath: "Sudden Death Victory",
+    "Timeout - More ships remaining": "Time Limit Reached — More Ships Remaining",
+    "SuddenDeath - First hit wins!": "Sudden Death — First Hit Wins!",
+    SuddenDeathTimeout: "Sudden Death Timeout — Draw",
     Disconnect: "Opponent Disconnected",
     LobbyTimeout: "No Opponent Joined (5 min)",
     PlacementTimeout: "Ships Not Deployed In Time (10 min)",

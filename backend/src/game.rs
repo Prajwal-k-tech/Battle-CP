@@ -79,6 +79,7 @@ impl Player {
             veto_started_at: None,
             last_verification_attempt: None,
             active_problem: None,
+            locked_at_unix: None,
         }
     }
 
@@ -160,6 +161,13 @@ impl Player {
         // Lock at heat >= threshold
         if self.heat >= heat_threshold {
             self.is_locked = true;
+            // Record wall-clock time of lock for submission timing validation
+            self.locked_at_unix = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            );
         }
 
         Ok((result, sunk_this_shot))
@@ -215,6 +223,7 @@ impl Player {
         self.active_problem = None; // Clear problem commitment for next session
         self.veto_started_at = None; // Clear veto timer — prevents spurious WeaponsUnlocked from ticker
         self.last_verification_attempt = None; // Allow immediate verify in next lock session
+        self.locked_at_unix = None; // Clear lock timestamp
     }
 }
 

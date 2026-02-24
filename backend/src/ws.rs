@@ -502,13 +502,11 @@ async fn handle_client_message(
                     ];
                 }
 
-                // BUG FIX: Third player trying to join a full game
+                // Third player trying to join a full game — explicitly reject
                 if game.player1.id != pid && game.player2.is_some() {
-                    if let Err(e) = game.join(pid, cf_handle) {
-                        return vec![ServerMessage::Error {
-                            message: e.to_string(),
-                        }];
-                    }
+                    return vec![ServerMessage::Error {
+                        message: "Game already has 2 players.".to_string(),
+                    }];
                 }
 
                 // If we reach here, player is P1 (host) connecting for first time
@@ -999,11 +997,12 @@ async fn handle_client_message(
             player.last_verification_attempt = Some(std::time::Instant::now());
 
             let handle = player.cf_handle.clone();
+            let locked_at = player.locked_at_unix;
             drop(games); // Drop lock strictly here
 
             let verify_result = state
                 .cf_client
-                .verify_submission(&handle, contest_id, &problem_index)
+                .verify_submission(&handle, contest_id, &problem_index, locked_at)
                 .await;
 
             match verify_result {

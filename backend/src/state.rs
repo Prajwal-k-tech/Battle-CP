@@ -123,6 +123,11 @@ pub struct Player {
     /// Prevents switching to an easier old problem mid-session.
     #[serde(skip)]
     pub active_problem: Option<(i32, String)>,
+    /// Wall-clock Unix timestamp (seconds) when weapons were locked.
+    /// Used to ensure submitted solutions were created AFTER getting locked,
+    /// preventing pre-solve exploits.
+    #[serde(skip)]
+    pub locked_at_unix: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
