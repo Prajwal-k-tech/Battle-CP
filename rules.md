@@ -28,4 +28,11 @@ Destroy the enemy fleet before time runs out. If time expires, the player with t
 If the game timer ends:
 1. **Primary:** Most ships remaining wins.
 2. **Secondary:** Most cells hit on enemy grid wins.
-3. **Final:** Sudden Death (Next hit wins).
+3. **Final:** Sudden Death — if both metrics are exactly equal.
+
+## 6. Sudden Death
+- Entered only when **ships remaining AND cells hit** are exactly equal at time-up.
+- **No state is reset** when Sudden Death begins. Heat locks remain. Veto timers keep running. Unlock requirements are unchanged.
+- **To win:** Be the first player to land a **Hit** on the enemy grid.
+- A Miss does NOT win. Only a confirmed Hit ends Sudden Death.
+- If you are heat-locked when Sudden Death starts, you must solve your CP problem (or wait out your veto) to unlock before you can fire.

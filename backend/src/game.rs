@@ -5,7 +5,7 @@ use uuid::Uuid; //a custom type for unique ids
 #[allow(unused)]
 impl Game {
     pub fn new(player1_id: Uuid, player1_handle: String, config: GameConfig) -> Self {
-        let (tx, _) = tokio::sync::broadcast::channel(500); //increase to 500 for lag compensation
+        let (tx, _) = tokio::sync::broadcast::channel(500);
         Self {
             id: Uuid::new_v4(),
             player1: Player::new(player1_id, player1_handle),
@@ -13,6 +13,7 @@ impl Game {
             status: GameStatus::Waiting,
             config,
             created_at: std::time::Instant::now(),
+            placement_started_at: None,
             game_started_at: None,
             finished_at: None,
             tx,
@@ -24,10 +25,11 @@ impl Game {
             return Err("Cannot play against yourself, silly");
         }
         if self.player2.is_some() {
-            //already has a p2
             return Err("Game already has 2 players.");
         }
         self.player2 = Some(Player::new(player2_id, player2_handle));
+        // Record when placement phase actually started (P2 just joined)
+        self.placement_started_at = Some(std::time::Instant::now());
         Ok(())
     }
     pub fn determine_winner(&self) -> crate::state::TiebreakResult {

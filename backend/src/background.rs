@@ -43,35 +43,39 @@ pub async fn start_global_ticker(state: AppState) {
                 }
             }
 
-            // Bug 5: Placement timeout — if ships not placed within 10 minutes
+            // Placement timeout: 10 minutes from when placement actually started (P2 joined).
+            // Using placement_started_at (not created_at) guarantees a full 10 minutes
+            // regardless of how long the lobby waited for P2.
             if game.status == GameStatus::PlacingShips {
-                if game.created_at.elapsed() >= std::time::Duration::from_secs(600) {
-                    game.status = GameStatus::Finished;
-                    game.finished_at = Some(std::time::Instant::now());
-                    let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
-                        winner_id: None,
-                        reason: "PlacementTimeout".to_string(),
-                        p1_id: game.player1.id,
-                        p1_ships_sunk: game.player1.stats.ships_sunk,
-                        p1_cells_hit: game.player1.stats.cells_hit,
-                        p1_problems_solved: game.player1.stats.problems_solved,
-                        p2_ships_sunk: game
-                            .player2
-                            .as_ref()
-                            .map(|p| p.stats.ships_sunk)
-                            .unwrap_or(0),
-                        p2_cells_hit: game
-                            .player2
-                            .as_ref()
-                            .map(|p| p.stats.cells_hit)
-                            .unwrap_or(0),
-                        p2_problems_solved: game
-                            .player2
-                            .as_ref()
-                            .map(|p| p.stats.problems_solved)
-                            .unwrap_or(0),
-                    }));
-                    tracing::info!("Game {:?} placement timed out (10 min)", game.id);
+                if let Some(placement_start) = game.placement_started_at {
+                    if placement_start.elapsed() >= std::time::Duration::from_secs(600) {
+                        game.status = GameStatus::Finished;
+                        game.finished_at = Some(std::time::Instant::now());
+                        let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
+                            winner_id: None,
+                            reason: "PlacementTimeout".to_string(),
+                            p1_id: game.player1.id,
+                            p1_ships_sunk: game.player1.stats.ships_sunk,
+                            p1_cells_hit: game.player1.stats.cells_hit,
+                            p1_problems_solved: game.player1.stats.problems_solved,
+                            p2_ships_sunk: game
+                                .player2
+                                .as_ref()
+                                .map(|p| p.stats.ships_sunk)
+                                .unwrap_or(0),
+                            p2_cells_hit: game
+                                .player2
+                                .as_ref()
+                                .map(|p| p.stats.cells_hit)
+                                .unwrap_or(0),
+                            p2_problems_solved: game
+                                .player2
+                                .as_ref()
+                                .map(|p| p.stats.problems_solved)
+                                .unwrap_or(0),
+                        }));
+                        tracing::info!("Game {:?} placement timed out (10 min)", game.id);
+                    }
                 }
             }
             if game.status == GameStatus::Playing || game.status == GameStatus::SuddenDeath {
@@ -86,8 +90,7 @@ pub async fn start_global_ticker(state: AppState) {
                             .copied()
                             .unwrap_or(900);
                         if veto_start.elapsed().as_secs() >= duration {
-                            game.player1.unlock_weapons();
-                            game.player1.veto_started_at = None;
+                            game.player1.unlock_weapons(); // also clears veto_started_at
                             let _ =
                                 game.tx
                                     .send(GameEvent::Message(ServerMessage::WeaponsUnlocked {
@@ -107,11 +110,11 @@ pub async fn start_global_ticker(state: AppState) {
                                 .copied()
                                 .unwrap_or(900);
                             if veto_start.elapsed().as_secs() >= duration {
-                                p2.unlock_weapons();
-                                p2.veto_started_at = None;
+                                let p2_id = p2.id;
+                                p2.unlock_weapons(); // also clears veto_started_at
                                 let _ = game.tx.send(GameEvent::Message(
                                     ServerMessage::WeaponsUnlocked {
-                                        player_id: p2.id,
+                                        player_id: p2_id,
                                         reason: "veto_expired".to_string(),
                                     },
                                 ));
@@ -187,29 +190,12 @@ pub async fn start_global_ticker(state: AppState) {
                                 }));
                             }
                             TiebreakResult::SuddenDeath => {
-                                //sudden death to break ties
+                                // Sudden Death: first player to land a HIT wins.
+                                // No player state changes on entry — heat locks, veto timers,
+                                // and unlock requirements ALL carry over unchanged.
+                                // The Tick handler propagates per-player state every second,
+                                // advertising "SuddenDeath" status to both clients.
                                 game.status = GameStatus::SuddenDeath;
-                                // Unlock heat-locked players only.
-                                // Mid-veto players stay locked — SD is an extension of the game;
-                                // veto timers must continue running.
-                                if game.player1.veto_started_at.is_none() {
-                                    game.player1.unlock_weapons();
-                                }
-                                if let Some(ref mut p2) = game.player2 {
-                                    if p2.veto_started_at.is_none() {
-                                        p2.unlock_weapons();
-                                    }
-                                }
-                                let _ =
-                                    game.tx.send(GameEvent::Message(ServerMessage::GameUpdate {
-                                        status: "SUDDEN DEATH! First hit wins!".to_string(),
-                                        is_active: true,
-                                        heat: 0,
-                                        is_locked: false,
-                                        time_remaining_secs: 0,
-                                        vetoes_remaining: 0,
-                                        veto_time_remaining_secs: None,
-                                    }));
                             }
                         }
                     }

@@ -84,6 +84,8 @@ pub struct Game {
     #[serde(skip)]
     pub created_at: std::time::Instant, // When lobby was created (for cleanup)
     #[serde(skip)]
+    pub placement_started_at: Option<std::time::Instant>, // When both players joined and placement started
+    #[serde(skip)]
     pub game_started_at: Option<std::time::Instant>,
     #[serde(skip)]
     pub finished_at: Option<std::time::Instant>, // For auto-cleanup

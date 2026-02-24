@@ -165,7 +165,11 @@ async fn handle_socket(
                                             };
 
                                             let update = ServerMessage::GameUpdate {
-                                                status: format!("{:?}", game.status),
+                                                status: match game.status {
+                                                    crate::state::GameStatus::SuddenDeath =>
+                                                        "SUDDEN DEATH! First hit wins!".to_string(),
+                                                    _ => format!("{:?}", game.status),
+                                                },
                                                 is_active: true,
                                                 heat: p.heat,
                                                 is_locked: p.is_locked,
