@@ -261,6 +261,20 @@ async fn handle_client_message(
                         .map(|s| s.elapsed().as_secs())
                         .unwrap_or(0);
                     let remaining = game.config.game_duration_secs.saturating_sub(elapsed);
+                    // Calculate remaining veto time so reconnected player sees the correct countdown
+                    let veto_durations = game.config.veto_penalties;
+                    let veto_time_remaining = player.veto_started_at.and_then(|veto_start| {
+                        let duration = veto_durations
+                            .get(player.vetoes_used.saturating_sub(1) as usize)
+                            .copied()
+                            .unwrap_or(900);
+                        let elapsed_veto = veto_start.elapsed().as_secs();
+                        if elapsed_veto < duration {
+                            Some(duration - elapsed_veto)
+                        } else {
+                            None
+                        }
+                    });
                     msgs.push(ServerMessage::GameUpdate {
                         status: format!("{:?}", game.status),
                         is_active: true,
@@ -268,7 +282,7 @@ async fn handle_client_message(
                         is_locked: player.is_locked,
                         time_remaining_secs: remaining,
                         vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
-                        veto_time_remaining_secs: None,
+                        veto_time_remaining_secs: veto_time_remaining,
                     });
 
                     // 3. If ships placed, confirm and RESEND ships

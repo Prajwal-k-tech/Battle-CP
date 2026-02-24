@@ -96,15 +96,13 @@ impl Player {
                     .copied()
                     .unwrap_or(900);
                 if start.elapsed() >= std::time::Duration::from_secs(required_secs) {
-                    // Timer expired, unlock!
+                    // Timer expired, unlock! Use same full reset as unlock_weapons()
                     self.is_locked = false;
                     self.heat = 0;
-                    // NOTE: vetoes_used already incremented in ws.rs when Veto was activated
+                    self.active_problem = None; // Clear committed problem
                     self.veto_started_at = None;
+                    self.last_verification_attempt = None; // Fresh session
                 } else {
-                    let _remaining = required_secs.saturating_sub(start.elapsed().as_secs());
-                    // This error string format is tricky without allocation, but we'll return static for now
-                    // Ideally return structured error
                     return Err("Weapons Locked! Wait for veto timer.");
                 }
             } else {
@@ -186,11 +184,38 @@ impl Player {
             return Err("Ship extends beyond grid boundary");
         }
 
-        // Check for overlap
+        // Check for overlap AND adjacency
+        // Standard Battleship: ships cannot touch each other (not even diagonally).
+        // The frontend enforces this too, but we re-validate server-side to block
+        // crafted WebSocket messages that bypass the client validation.
         for i in 0..ship.size as usize {
             let (cx, cy) = if vertical { (x, y + i) } else { (x + i, y) };
+            // Check the cell itself
             if self.grid.cells[cy][cx] != CellState::Empty {
                 return Err("Ship overlaps with another ship");
+            }
+            // Check all 8 neighbors for adjacency
+            for dy in -1i32..=1 {
+                for dx in -1i32..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let nx = cx as i32 + dx;
+                    let ny = cy as i32 + dy;
+                    // Skip cells occupied by THIS ship being placed (future cells)
+                    let is_this_ship_cell = (0..ship.size as usize).any(|j| {
+                        let (sx, sy) = if vertical { (x, y + j) } else { (x + j, y) };
+                        nx == sx as i32 && ny == sy as i32
+                    });
+                    if is_this_ship_cell {
+                        continue;
+                    }
+                    if nx >= 0 && nx < 10 && ny >= 0 && ny < 10 {
+                        if self.grid.cells[ny as usize][nx as usize] != CellState::Empty {
+                            return Err("Ships cannot be adjacent to each other");
+                        }
+                    }
+                }
             }
         }
 
@@ -212,7 +237,9 @@ impl Player {
     pub fn unlock_weapons(&mut self) {
         self.is_locked = false;
         self.heat = 0;
-        self.active_problem = None; // Clear commitment so next lock session starts fresh
+        self.active_problem = None; // Clear problem commitment for next session
+        self.veto_started_at = None; // Clear veto timer — prevents spurious WeaponsUnlocked from ticker
+        self.last_verification_attempt = None; // Allow immediate verify in next lock session
     }
 }
 
