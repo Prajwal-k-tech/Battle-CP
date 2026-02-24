@@ -201,13 +201,39 @@ export function ProblemPanel({
                 if (found) {
                     setProblem(found);
                 } else {
-                    // Not in cache — use a stub with the IDs so verify still works
-                    setProblem({
-                        contestId: activeProblemContestId,
-                        index: activeProblemIndex,
-                        name: `Problem ${activeProblemIndex}`,
-                        rating: difficulty,
-                    });
+                    // Not in cache — fetch real name from CF instead of primitive stub
+                    setLoading(true);
+                    fetch(`https://codeforces.com/api/contest.standings?contestId=${activeProblemContestId}&from=1&count=1`)
+                        .then(res => {
+                            if (!res.ok) throw new Error("Failed to fetch contest");
+                            return res.json();
+                        })
+                        .then(data => {
+                            if (data.status === "OK" && data.result?.problems) {
+                                const realProblem = data.result.problems.find((p: any) => p.index === activeProblemIndex);
+                                if (realProblem) {
+                                    setProblem({
+                                        contestId: activeProblemContestId,
+                                        index: activeProblemIndex,
+                                        name: realProblem.name,
+                                        rating: realProblem.rating || difficulty,
+                                    });
+                                    return;
+                                }
+                            }
+                            throw new Error("Problem not found in API response");
+                        })
+                        .catch(err => {
+                            console.error("Failed to fetch restoring problem name:", err);
+                            // Fallback to minimal stub if API fails
+                            setProblem({
+                                contestId: activeProblemContestId,
+                                index: activeProblemIndex,
+                                name: `Problem ${activeProblemIndex}`,
+                                rating: difficulty,
+                            });
+                        })
+                        .finally(() => setLoading(false));
                 }
                 // No need to commit — server already has this committed
             } else {
