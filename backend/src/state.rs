@@ -4,14 +4,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 //read
-#[derive(Clone)] 
+#[derive(Clone)]
 pub struct AppState {
     pub games: Arc<RwLock<HashMap<Uuid, Game>>>, //rewlock , many can read one can write, Arc allows shared ownership across threads
     pub cf_client: crate::cf_client::CFClient, //initiates a cf client to deal with verification + problem fetching
 }
 
 impl Default for AppState {
-    fn default() -> Self { //kind stupid the llm did this but no performance issue ig except 1 extra call on the stack?
+    fn default() -> Self {
+        //kind stupid the llm did this but no performance issue ig except 1 extra call on the stack?
         Self::new() //constructure for appstate
     }
 }
@@ -41,7 +42,8 @@ pub struct GameConfig {
     pub game_duration_secs: u64, // default: 45 * 60 = 2700
 }
 
-impl Default for GameConfig { //setting up the default difficulty
+impl Default for GameConfig {
+    //setting up the default difficulty
     fn default() -> Self {
         Self {
             difficulty: 800,
@@ -55,16 +57,18 @@ impl Default for GameConfig { //setting up the default difficulty
 
 // Player statistics for tie-breaking
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct PlayerStats {//stats displayed later + win deterimination
+pub struct PlayerStats {
+    //stats displayed later + win deterimination
     pub ships_sunk: u32,
     pub cells_hit: u32,
     pub cells_missed: u32,
-    pub problems_solved: u32,                                                                                                                                                                                                                                                                                                                                                               
+    pub problems_solved: u32,
 }
 
 // Tie-break result
 #[derive(Clone, Debug, PartialEq)]
-pub enum TiebreakResult { //results of game
+pub enum TiebreakResult {
+    //results of game
     Player1Wins,
     Player2Wins,
     SuddenDeath,
@@ -97,7 +101,8 @@ pub enum GameStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Player { //everything related to the player
+pub struct Player {
+    //everything related to the player
     pub id: Uuid,
     pub cf_handle: String,
     pub grid: Grid,
@@ -111,6 +116,11 @@ pub struct Player { //everything related to the player
     pub veto_started_at: Option<std::time::Instant>,
     #[serde(skip)]
     pub last_verification_attempt: Option<std::time::Instant>,
+    /// The CF problem committed to in the current lock session.
+    /// Set on first SolveCP call per lock; cleared on unlock.
+    /// Prevents switching to an easier old problem mid-session.
+    #[serde(skip)]
+    pub active_problem: Option<(i32, String)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,7 +129,8 @@ pub struct Grid {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub enum CellState { //stats a cell can have for front end to figure out
+pub enum CellState {
+    //stats a cell can have for front end to figure out
     Empty,
     Ship,
     Hit,

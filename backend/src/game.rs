@@ -76,6 +76,7 @@ impl Player {
             ships_placed: false,
             veto_started_at: None,
             last_verification_attempt: None,
+            active_problem: None,
         }
     }
 
@@ -211,6 +212,7 @@ impl Player {
     pub fn unlock_weapons(&mut self) {
         self.is_locked = false;
         self.heat = 0;
+        self.active_problem = None; // Clear commitment so next lock session starts fresh
     }
 }
 

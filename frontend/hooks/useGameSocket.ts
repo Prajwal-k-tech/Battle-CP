@@ -27,7 +27,6 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
 
         switch (msg.type) {
             case "GameJoined": {
-                console.log(`[WS] GameJoined: game_id=${msg.game_id}`);
                 let wasConnecting = false;
                 setGameState(prev => {
                     // ONLY transition to lobby if we're in connecting state
@@ -87,7 +86,6 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 break;
 
             case "GameStart":
-                console.log("[WS] GameStart received - moving to combat");
                 setGameState(prev => ({
                     ...prev,
                     phase: "combat",
@@ -100,33 +98,18 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 setGameState(prev => {
                     let newPhase = prev.phase;
 
-                    console.log(`[WS] GameUpdate: status="${msg.status}", currentPhase="${prev.phase}"`);
-
                     // SECURITY: Only process GameUpdates if we have a confirmed playerId
                     // This prevents third players (who got rejected) from transitioning phases
-                    if (!prev.playerId) {
-                        console.warn("[WS] GameUpdate received but no playerId confirmed, ignoring phase changes");
-                        return prev;
-                    }
+                    if (!prev.playerId) return prev;
 
                     // Only transit to combat if we are actually playing
                     if (msg.status === "Playing" && (prev.phase === "connecting" || prev.phase === "lobby" || prev.phase === "placement")) {
                         // EXTRA SAFETY: Only transition if ships are placed
                         if (prev.myShipsPlaced && prev.opponentShipsPlaced) {
                             newPhase = "combat";
-                            console.log("[WS] GameUpdate: Transitioning to combat");
-                        } else {
-                            console.warn("[WS] GameUpdate says Playing but ships not placed, staying in", prev.phase);
                         }
                     }
-                    // Handle initial connection state - but NEVER reset from placement
-                    else if (msg.status.includes("Waiting") && prev.phase === "connecting") {
-                        newPhase = "lobby";
-                        console.log("[WS] GameUpdate: Transitioning from connecting to lobby");
-                    }
                     // IMPORTANT: Don't change phase otherwise - preserve placement/combat phases
-
-                    console.log(`[WS] GameUpdate: newPhase will be "${newPhase}"`);
 
                     return {
                         ...prev,
@@ -291,7 +274,6 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
         // Check for both CONNECTING and OPEN states
         const wsState = wsRef.current?.readyState;
         if (isConnecting.current || wsState === WebSocket.OPEN || wsState === WebSocket.CONNECTING) {
-            console.log(`[WS] Already connecting or connected (state: ${wsState}), skipping`);
             return;
         }
 
@@ -302,13 +284,10 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 return;
             }
             isConnecting.current = true;
-
-            console.log(`[WS] Connecting to ${WS_BASE_URL}/ws/${gameId}`);
             const ws = new WebSocket(`${WS_BASE_URL}/ws/${gameId}?player_id=${playerId}`);
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log("[WS] Connected successfully");
                 isConnecting.current = false;
                 setIsConnected(true);
                 reconnectAttempts.current = 0;
@@ -331,36 +310,25 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
             };
 
             ws.onclose = (event) => {
-                console.log("[WS] Disconnected:", event.code, event.reason);
                 isConnecting.current = false;
                 setIsConnected(false);
                 wsRef.current = null;
 
-                // Attempt reconnect if not intentional close, game exists, and not told to stop
                 if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts && !shouldStopReconnect.current) {
                     reconnectAttempts.current++;
                     const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
-                    console.log(`[WS] Reconnecting in ${delay}ms... (attempt ${reconnectAttempts.current})`);
                     setTimeout(connect, delay);
-                } else if (shouldStopReconnect.current) {
-                    console.log("[WS] Not reconnecting - game not found or ended");
                 }
             };
 
-            ws.onerror = (error: Event) => {
-                // WebSocket errors don't contain useful info in the Event object
-                // Real error details come through onmessage (Error type) or onclose
-                // Using warn instead of error to avoid triggering Next.js dev error overlay
-                console.warn("[WS] WebSocket error event (often harmless in dev mode). Target:", (error.target as WebSocket)?.url);
+            ws.onerror = () => {
                 isConnecting.current = false;
-                // Don't show toast here - let onclose or Error message handle it
             };
         };
 
         connect();
 
         return () => {
-            console.log("[WS] Cleanup: closing connection");
             isConnecting.current = false;
             if (wsRef.current) {
                 wsRef.current.close(1000, "Component unmounting");

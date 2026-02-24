@@ -50,7 +50,7 @@ async fn handle_socket(
     let rx = {
         let games = state.games.read().await;
         games.get(&game_id).map(|g| {
-            println!(
+            tracing::debug!(
                 "[WS] Player connecting to game {:?}, subscribing to broadcast (current subs: {})",
                 game_id,
                 g.tx.receiver_count()
@@ -62,7 +62,7 @@ async fn handle_socket(
     let mut rx = match rx {
         Some(rx) => rx,
         None => {
-            println!("[WS] Game {:?} not found!", game_id);
+            tracing::warn!("[WS] Game {:?} not found!", game_id);
             let _ = sender
                 .send(Message::Text(
                     serde_json::to_string(&ServerMessage::Error {
@@ -94,21 +94,21 @@ async fn handle_socket(
                                 for resp in responses {
                                     let resp_text = serde_json::to_string(&resp).unwrap();
                                     if sender.send(Message::Text(resp_text.into())).await.is_err() {
-                                        println!("[WS] Failed to send response, closing connection");
+                                        tracing::warn!("[WS] Failed to send response, closing connection");
                                         break 'main_loop;
                                     }
                                 }
                             } else {
-                                println!("[WS] Failed to parse message: {}", text);
+                                tracing::debug!("[WS] Failed to parse message: {}", text);
                             }
                         }
                     }
                     Some(Err(e)) => {
-                        println!("[WS] Receive error: {:?}", e);
+                        tracing::warn!("[WS] Receive error: {:?}", e);
                         break 'main_loop;
                     }
                     None => {
-                        println!("[WS] Client disconnected");
+                        tracing::debug!("[WS] Client disconnected");
                         break 'main_loop;
                     }
                 }
@@ -175,7 +175,7 @@ async fn handle_socket(
                                             };
                                             let resp_text = serde_json::to_string(&update).unwrap();
                                             if sender.send(Message::Text(resp_text.into())).await.is_err() {
-                                                println!("[WS] Failed to send tick update, closing connection");
+                                                tracing::warn!("[WS] Failed to send tick update, closing connection");
                                                 break 'main_loop;
                                             }
                                         }
@@ -185,27 +185,28 @@ async fn handle_socket(
                             crate::state::GameEvent::Message(msg) => {
                                  let resp_text = serde_json::to_string(&msg).unwrap();
                                  if sender.send(Message::Text(resp_text.into())).await.is_err() {
-                                     println!("[WS] Failed to send broadcast message, closing connection");
+                                     tracing::warn!("[WS] Failed to send broadcast message, closing connection");
                                      break 'main_loop;
                                  }
                             }
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        println!("[WS] Broadcast receiver lagged by {} messages", n);
+                        tracing::warn!("[WS] Broadcast receiver lagged by {} messages", n);
                         // Continue - we can recover from lag
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        println!("[WS] Broadcast channel closed, ending connection");
+                        tracing::debug!("[WS] Broadcast channel closed, ending connection");
                         break 'main_loop;
                     }
                 }
             }
         }
     }
-    println!(
+    tracing::debug!(
         "[WS] Connection handler exiting for player {:?} in game {:?}",
-        player_id, game_id
+        player_id,
+        game_id
     );
 }
 
@@ -792,8 +793,10 @@ async fn handle_client_message(
                         ));
                     }
 
-                    // If game over (all sunk), broadcast
-                    if all_sunk {
+                    // If game over (all sunk), broadcast — but ONLY in standard mode.
+                    // In SuddenDeath, the SD path below always takes priority
+                    // to prevent sending two GameOver messages.
+                    if all_sunk && !is_sudden_death {
                         let (p1_ships_sunk, p1_cells_hit, p1_problems_solved) = {
                             let s = &game.player1.stats;
                             (s.ships_sunk, s.cells_hit, s.problems_solved)
@@ -910,12 +913,41 @@ async fn handle_client_message(
                 }];
             };
 
-            // CRITICAL: Block solving during active veto
+            // SECURITY: Block solving during active veto
             if player.veto_started_at.is_some() {
                 return vec![ServerMessage::Error {
                     message: "Cannot solve during veto penalty. You must wait for the timer."
                         .to_string(),
                 }];
+            }
+
+            // SECURITY: Block solving when weapons are not locked
+            // Without this, a player could freely call SolveCP to inflate problems_solved
+            // and get heat/lock reset for free at any time
+            if !player.is_locked {
+                return vec![ServerMessage::Error {
+                    message: "Cannot verify - weapons are not locked".to_string(),
+                }];
+            }
+
+            // SECURITY: Enforce problem commitment per lock session.
+            // On first SolveCP call, commit to this (contest_id, problem_index).
+            // All subsequent calls in this lock session MUST use the same problem.
+            // This prevents switching to an easier/older solved problem mid-session.
+            match &player.active_problem {
+                None => {
+                    // First call: commit to this problem
+                    player.active_problem = Some((contest_id, problem_index.clone()));
+                }
+                Some((committed_cid, committed_idx)) => {
+                    if *committed_cid != contest_id || committed_idx != &problem_index {
+                        return vec![ServerMessage::Error {
+                            message:
+                                "You must solve the problem you committed to. Use veto to skip."
+                                    .to_string(),
+                        }];
+                    }
+                }
             }
 
             // RATE LIMIT CHECK: 10 seconds cooldown

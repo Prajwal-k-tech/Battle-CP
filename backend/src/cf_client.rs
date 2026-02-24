@@ -121,8 +121,11 @@ impl CFClient {
         contest_id: i32,
         index: &str,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // Fetch last 500 submissions — CF API allows up to 500.
+        // Using only 50 risked permanent lock if player had >50 newer submissions
+        // since solving the assigned problem.
         let url = format!(
-            "https://codeforces.com/api/user.status?handle={}&from=1&count=50",
+            "https://codeforces.com/api/user.status?handle={}&from=1&count=500",
             handle
         );
         let resp = self
