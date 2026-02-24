@@ -23,6 +23,12 @@ pub enum ClientMessage {
         contest_id: i32,
         problem_index: String,
     },
+    CommitProblem {
+        // Sent by frontend when ProblemPanel picks/displays a problem.
+        // Stores the problem on the server so it survives reconnect.
+        contest_id: i32,
+        problem_index: String,
+    },
     Veto, //veto request, type only
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]

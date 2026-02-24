@@ -1077,6 +1077,39 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::CommitProblem {
+            contest_id,
+            problem_index,
+        } => {
+            // Lightweight: just store the displayed problem so it survives reconnect.
+            // No CF API call, no state change beyond active_problem.
+            let pid = match *player_id {
+                Some(p) => p,
+                None => return vec![],
+            };
+            let mut games = state.games.write().await;
+            let game = match games.get_mut(&game_id) {
+                Some(g) => g,
+                None => return vec![],
+            };
+            let player = if game.player1.id == pid {
+                &mut game.player1
+            } else if let Some(ref mut p) = game.player2 {
+                if p.id == pid {
+                    p
+                } else {
+                    return vec![];
+                }
+            } else {
+                return vec![];
+            };
+            // Only store if locked and no existing commitment
+            if player.is_locked && player.active_problem.is_none() {
+                player.active_problem = Some((contest_id, problem_index));
+            }
+            vec![] // No response needed
+        }
+
         ClientMessage::Veto => {
             let pid = if let Some(p) = *player_id {
                 p

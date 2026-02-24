@@ -372,6 +372,17 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
         }
     }, [gameState.vetoesRemaining]);
 
+    // Action: Commit displayed problem to server (so it persists across reconnect)
+    const commitProblem = useCallback((contestId: number, problemIndex: string) => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: "CommitProblem",
+                contest_id: contestId,
+                problem_index: problemIndex
+            }));
+        }
+    }, []);
+
     return {
         gameState,
         isConnected,
@@ -379,6 +390,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
         fire,
         placeShips,
         solveCP,
+        commitProblem,
         veto,
     };
 }

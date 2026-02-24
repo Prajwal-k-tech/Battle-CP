@@ -33,6 +33,7 @@ interface ProblemPanelProps {
     activeProblemContestId: number | null;
     activeProblemIndex: string | null;
     onSolve: (contestId: number, problemIndex: string) => void;
+    onCommitProblem: (contestId: number, problemIndex: string) => void;
     onVeto: () => void;
 }
 
@@ -48,6 +49,7 @@ export function ProblemPanel({
     activeProblemContestId,
     activeProblemIndex,
     onSolve,
+    onCommitProblem,
     onVeto,
 }: ProblemPanelProps) {
     const [problem, setProblem] = useState<RatedProblem | null>(null);
@@ -207,6 +209,7 @@ export function ProblemPanel({
                         rating: difficulty,
                     });
                 }
+                // No need to commit — server already has this committed
             } else {
                 // No server commitment yet — pick a new random problem
                 fetchProblem();
@@ -216,6 +219,14 @@ export function ProblemPanel({
             setLocalVetoTime(null);
         }
     }, [isLocked, problem, fetchProblem, activeProblemContestId, activeProblemIndex, difficulty]);
+
+    // AUTO-COMMIT: Whenever we display a new problem, tell the server immediately
+    // so it persists across reconnect/refresh
+    useEffect(() => {
+        if (problem && isLocked) {
+            onCommitProblem(problem.contestId, problem.index);
+        }
+    }, [problem, isLocked, onCommitProblem]);
 
     const handleVerify = async () => {
         if (!problem || verifyCooldown > 0) return;

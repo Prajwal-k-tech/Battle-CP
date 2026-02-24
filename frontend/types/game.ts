@@ -95,6 +95,7 @@ export type ClientMessage =
     | { type: "PlaceShips"; ships: ShipPlacement[] }
     | { type: "Fire"; x: number; y: number }
     | { type: "SolveCP"; contest_id: number; problem_index: string }
+    | { type: "CommitProblem"; contest_id: number; problem_index: string }
     | { type: "Veto" };
 
 // Server -> Client Messages
