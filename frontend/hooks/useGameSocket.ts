@@ -119,7 +119,10 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         vetoesRemaining: msg.vetoes_remaining,
                         vetoTimeRemaining: msg.veto_time_remaining_secs ?? null,
                         status: msg.status,
-                        phase: newPhase
+                        phase: newPhase,
+                        // Server-committed problem — ProblemPanel uses this to avoid picking random
+                        activeProblemContestId: msg.active_problem_contest_id ?? null,
+                        activeProblemIndex: msg.active_problem_index ?? null,
                     };
                 });
                 break;

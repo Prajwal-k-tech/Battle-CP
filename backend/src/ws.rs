@@ -176,6 +176,8 @@ async fn handle_socket(
                                                 time_remaining_secs: remaining,
                                                 vetoes_remaining: game.config.max_vetoes.saturating_sub(p.vetoes_used),
                                                 veto_time_remaining_secs: veto_time_remaining,
+                                                active_problem_contest_id: p.active_problem.as_ref().map(|(cid, _)| *cid),
+                                                active_problem_index: p.active_problem.as_ref().map(|(_, idx)| idx.clone()),
                                             };
                                             let resp_text = serde_json::to_string(&update).unwrap();
                                             if sender.send(Message::Text(resp_text.into())).await.is_err() {
@@ -280,13 +282,26 @@ async fn handle_client_message(
                         }
                     });
                     msgs.push(ServerMessage::GameUpdate {
-                        status: format!("{:?}", game.status),
+                        status: match game.status {
+                            crate::state::GameStatus::SuddenDeath => {
+                                "SUDDEN DEATH! First hit wins!".to_string()
+                            }
+                            _ => format!("{:?}", game.status),
+                        },
                         is_active: true,
                         heat: player.heat,
                         is_locked: player.is_locked,
                         time_remaining_secs: remaining,
                         vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
                         veto_time_remaining_secs: veto_time_remaining,
+                        active_problem_contest_id: player
+                            .active_problem
+                            .as_ref()
+                            .map(|(cid, _)| *cid),
+                        active_problem_index: player
+                            .active_problem
+                            .as_ref()
+                            .map(|(_, idx)| idx.clone()),
                     });
 
                     // 3. If ships placed, confirm and RESEND ships
@@ -580,6 +595,8 @@ async fn handle_client_message(
                         time_remaining_secs: game.config.game_duration_secs,
                         vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
                         veto_time_remaining_secs: None,
+                        active_problem_contest_id: None,
+                        active_problem_index: None,
                     },
                 ];
             }
@@ -699,6 +716,8 @@ async fn handle_client_message(
                 time_remaining_secs: game.config.game_duration_secs,
                 vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
                 veto_time_remaining_secs: None,
+                active_problem_contest_id: None,
+                active_problem_index: None,
             }]
         }
 
@@ -1041,6 +1060,9 @@ async fn handle_client_message(
                                 .max_vetoes
                                 .saturating_sub(player.vetoes_used),
                             veto_time_remaining_secs: None,
+                            // active_problem is cleared by unlock_weapons(), so always None here
+                            active_problem_contest_id: None,
+                            active_problem_index: None,
                         }]
                     } else {
                         vec![]
@@ -1136,10 +1158,13 @@ async fn handle_client_message(
                 status: format!("Veto activated. Wait {} minutes.", duration_secs / 60),
                 is_active: false,
                 heat: player.heat,
-                is_locked: true, // Still locked during veto
+                is_locked: true,
                 time_remaining_secs: game_remaining,
                 vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
                 veto_time_remaining_secs: Some(duration_secs),
+                // Committed problem survives a veto — player must still solve the same problem.
+                active_problem_contest_id: player.active_problem.as_ref().map(|(cid, _)| *cid),
+                active_problem_index: player.active_problem.as_ref().map(|(_, idx)| idx.clone()),
             }]
         }
     }

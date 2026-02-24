@@ -28,7 +28,10 @@ interface ProblemPanelProps {
     difficulty: number;
     vetoesRemaining: number;
     maxVetoes: number;
-    vetoTimeRemaining: number | null; //could be null?
+    vetoTimeRemaining: number | null;
+    // Server-committed problem — when set, ProblemPanel MUST show this exact problem
+    activeProblemContestId: number | null;
+    activeProblemIndex: string | null;
     onSolve: (contestId: number, problemIndex: string) => void;
     onVeto: () => void;
 }
@@ -42,6 +45,8 @@ export function ProblemPanel({
     vetoesRemaining,
     maxVetoes,
     vetoTimeRemaining,
+    activeProblemContestId,
+    activeProblemIndex,
     onSolve,
     onVeto,
 }: ProblemPanelProps) {
@@ -184,13 +189,33 @@ export function ProblemPanel({
 
     useEffect(() => {
         if (isLocked && !problem) {
-            fetchProblem();
+            // If server has a committed problem, restore it instead of picking random
+            if (activeProblemContestId !== null && activeProblemIndex !== null) {
+                // Try to find the exact problem in our cache for its name
+                const cached = problemCache.get(difficulty);
+                const found = cached?.find(
+                    p => p.contestId === activeProblemContestId && p.index === activeProblemIndex
+                );
+                if (found) {
+                    setProblem(found);
+                } else {
+                    // Not in cache — use a stub with the IDs so verify still works
+                    setProblem({
+                        contestId: activeProblemContestId,
+                        index: activeProblemIndex,
+                        name: `Problem ${activeProblemIndex}`,
+                        rating: difficulty,
+                    });
+                }
+            } else {
+                // No server commitment yet — pick a new random problem
+                fetchProblem();
+            }
         } else if (!isLocked) {
             setProblem(null);
             setLocalVetoTime(null);
-            // If we just unlocked, plays sound? Handled by backend message but here we can too
         }
-    }, [isLocked, problem, fetchProblem]);
+    }, [isLocked, problem, fetchProblem, activeProblemContestId, activeProblemIndex, difficulty]);
 
     const handleVerify = async () => {
         if (!problem || verifyCooldown > 0) return;

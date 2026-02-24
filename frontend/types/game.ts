@@ -48,6 +48,11 @@ export interface GameState {
 
     // Error
     lastError: string | null;
+
+    // Server-committed problem for the current lock session.
+    // When set, ProblemPanel MUST use this instead of picking a random problem.
+    activeProblemContestId: number | null;
+    activeProblemIndex: string | null;
 }
 
 export const initialGameState: GameState = {
@@ -80,6 +85,8 @@ export const initialGameState: GameState = {
     gameOverReason: null,
     lastError: null,
     difficulty: 800,
+    activeProblemContestId: null,
+    activeProblemIndex: null,
 };
 
 // Client -> Server Messages
@@ -105,7 +112,7 @@ export type ServerMessage =
     | { type: "GridSync"; my_grid: CellState[][]; enemy_grid: CellState[][] }
 
     // Combat
-    | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number }
+    | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number; active_problem_contest_id?: number; active_problem_index?: string }
     | { type: "ShotResult"; x: number; y: number; hit: boolean; sunk: boolean; shooter_id: string }
     | { type: "WeaponsLocked"; player_id: string }
     | { type: "WeaponsUnlocked"; player_id: string; reason: string } // "solved" or "veto_expired"

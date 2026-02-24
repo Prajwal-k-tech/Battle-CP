@@ -318,6 +318,8 @@ function GameContent({
                         vetoesRemaining={gameState.vetoesRemaining}
                         maxVetoes={gameState.maxVetoes}
                         vetoTimeRemaining={gameState.vetoTimeRemaining}
+                        activeProblemContestId={gameState.activeProblemContestId}
+                        activeProblemIndex={gameState.activeProblemIndex}
                         onSolve={solveCP}
                         onVeto={veto}
                     />

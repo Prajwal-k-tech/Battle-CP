@@ -57,6 +57,12 @@ pub enum ServerMessage {
         vetoes_remaining: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         veto_time_remaining_secs: Option<u64>,
+        // Committed problem for this lock session — sent so client can restore after reconnect.
+        // None when weapons are not locked or no problem committed yet.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_problem_contest_id: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_problem_index: Option<String>,
     },
     ShotResult {
         x: usize,
