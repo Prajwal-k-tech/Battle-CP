@@ -1,35 +1,27 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-//read
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientMessage {
     JoinGame {
-        //join a game + players cf handle
         player_id: Uuid,
         cf_handle: String,
     },
     PlaceShips {
-        //placement of ships
         ships: Vec<ShipPlacement>,
     },
     Fire {
-        //where in the grid you fire
         x: usize,
         y: usize,
     },
     SolveCP {
-        //contest id + problem index shows which q to solve
+        // Client sends this to verify their submission.
+        // contest_id and problem_index MUST match the server-assigned problem.
         contest_id: i32,
         problem_index: String,
     },
-    CommitProblem {
-        // Sent by frontend when ProblemPanel picks/displays a problem.
-        // Stores the problem on the server so it survives reconnect.
-        contest_id: i32,
-        problem_index: String,
-    },
-    Veto, //veto request, type only
+    Veto,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -54,7 +46,6 @@ pub enum ServerMessage {
 
     //Combat Phase
     GameUpdate {
-        //every tick you get an update on these game stats
         status: String,
         is_active: bool,
         heat: u32,
@@ -63,12 +54,13 @@ pub enum ServerMessage {
         vetoes_remaining: u32,
         #[serde(skip_serializing_if = "Option::is_none")]
         veto_time_remaining_secs: Option<u64>,
-        // Committed problem for this lock session — sent so client can restore after reconnect.
-        // None when weapons are not locked or no problem committed yet.
+        // Server-assigned problem for the current lock session.
         #[serde(skip_serializing_if = "Option::is_none")]
         active_problem_contest_id: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         active_problem_index: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_problem_name: Option<String>,
     },
     ShotResult {
         x: usize,
@@ -82,7 +74,17 @@ pub enum ServerMessage {
     },
     WeaponsUnlocked {
         player_id: Uuid,
-        reason: String, //either "solved" or "veto"
+        reason: String,
+    },
+
+    /// Server-assigned problem when weapons overheat.
+    /// Sent once when the problem is picked; also included in every GameUpdate tick.
+    ProblemAssigned {
+        player_id: Uuid,
+        contest_id: i32,
+        problem_index: String,
+        problem_name: String,
+        rating: u32,
     },
 
     GameOver {

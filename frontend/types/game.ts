@@ -49,10 +49,12 @@ export interface GameState {
     // Error
     lastError: string | null;
 
-    // Server-committed problem for the current lock session.
-    // When set, ProblemPanel MUST use this instead of picking a random problem.
+    // Server-assigned problem for the current lock session.
+    // The server is the single source of truth — no client-side problem selection.
     activeProblemContestId: number | null;
     activeProblemIndex: string | null;
+    activeProblemName: string | null;
+    activeProblemRating: number | null;
 }
 
 export const initialGameState: GameState = {
@@ -87,6 +89,8 @@ export const initialGameState: GameState = {
     difficulty: 800,
     activeProblemContestId: null,
     activeProblemIndex: null,
+    activeProblemName: null,
+    activeProblemRating: null,
 };
 
 // Client -> Server Messages
@@ -95,7 +99,6 @@ export type ClientMessage =
     | { type: "PlaceShips"; ships: ShipPlacement[] }
     | { type: "Fire"; x: number; y: number }
     | { type: "SolveCP"; contest_id: number; problem_index: string }
-    | { type: "CommitProblem"; contest_id: number; problem_index: string }
     | { type: "Veto" };
 
 // Server -> Client Messages
@@ -113,10 +116,13 @@ export type ServerMessage =
     | { type: "GridSync"; my_grid: CellState[][]; enemy_grid: CellState[][] }
 
     // Combat
-    | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number; active_problem_contest_id?: number; active_problem_index?: string }
+    | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number; active_problem_contest_id?: number; active_problem_index?: string; active_problem_name?: string }
     | { type: "ShotResult"; x: number; y: number; hit: boolean; sunk: boolean; shooter_id: string }
     | { type: "WeaponsLocked"; player_id: string }
     | { type: "WeaponsUnlocked"; player_id: string; reason: string } // "solved" or "veto_expired"
+
+    // Server-assigned problem
+    | { type: "ProblemAssigned"; player_id: string; contest_id: number; problem_index: string; problem_name: string; rating: number }
 
     // End
     | {

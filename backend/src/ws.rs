@@ -176,8 +176,9 @@ async fn handle_socket(
                                                 time_remaining_secs: remaining,
                                                 vetoes_remaining: game.config.max_vetoes.saturating_sub(p.vetoes_used),
                                                 veto_time_remaining_secs: veto_time_remaining,
-                                                active_problem_contest_id: p.active_problem.as_ref().map(|(cid, _)| *cid),
-                                                active_problem_index: p.active_problem.as_ref().map(|(_, idx)| idx.clone()),
+                                                active_problem_contest_id: p.active_problem.as_ref().map(|ap| ap.contest_id),
+                                                active_problem_index: p.active_problem.as_ref().map(|ap| ap.index.clone()),
+                                                active_problem_name: p.active_problem.as_ref().map(|ap| ap.name.clone()),
                                             };
                                             let resp_text = serde_json::to_string(&update).unwrap();
                                             if sender.send(Message::Text(resp_text.into())).await.is_err() {
@@ -297,11 +298,15 @@ async fn handle_client_message(
                         active_problem_contest_id: player
                             .active_problem
                             .as_ref()
-                            .map(|(cid, _)| *cid),
+                            .map(|ap| ap.contest_id),
                         active_problem_index: player
                             .active_problem
                             .as_ref()
-                            .map(|(_, idx)| idx.clone()),
+                            .map(|ap| ap.index.clone()),
+                        active_problem_name: player
+                            .active_problem
+                            .as_ref()
+                            .map(|ap| ap.name.clone()),
                     });
 
                     // 3. If ships placed, confirm and RESEND ships
@@ -595,6 +600,7 @@ async fn handle_client_message(
                         veto_time_remaining_secs: None,
                         active_problem_contest_id: None,
                         active_problem_index: None,
+                        active_problem_name: None,
                     },
                 ];
             }
@@ -716,6 +722,7 @@ async fn handle_client_message(
                 veto_time_remaining_secs: None,
                 active_problem_contest_id: None,
                 active_problem_index: None,
+                active_problem_name: None,
             }]
         }
 
@@ -898,6 +905,81 @@ async fn handle_client_message(
 
                     // Bug 9 fix: Don't return ShotResult directly — broadcast handles it
                     // Returning it here caused the shooter to receive it twice (double toasts)
+
+                    // ── SERVER-SIDE PROBLEM ASSIGNMENT ──
+                    // If the shooter just got locked and the game isn't over,
+                    // pick a problem from CF and assign it.
+                    if shooter_locked && game.status != GameStatus::Finished {
+                        // Grab what we need before dropping the write lock
+                        let shooter_handle = if game.player1.id == pid {
+                            game.player1.cf_handle.clone()
+                        } else {
+                            game.player2.as_ref().map(|p| p.cf_handle.clone()).unwrap_or_default()
+                        };
+                        let difficulty = game.config.difficulty;
+                        let tx = game.tx.clone();
+
+                        // Check if already has a problem (shouldn't happen, but be safe)
+                        let already_has = if game.player1.id == pid {
+                            game.player1.active_problem.is_some()
+                        } else {
+                            game.player2.as_ref().is_some_and(|p| p.active_problem.is_some())
+                        };
+
+                        if !already_has {
+                            // Drop the write lock so we can do async I/O
+                            drop(games);
+
+                            let assigned = state.cf_client.pick_problem(difficulty, &shooter_handle).await;
+
+                            // Re-acquire write lock and store the result
+                            let mut games = state.games.write().await;
+                            if let Some(game) = games.get_mut(&game_id) {
+                                match assigned {
+                                    Ok(problem) => {
+                                        let ap = crate::state::AssignedProblem {
+                                            contest_id: problem.contest_id.unwrap_or(0),
+                                            index: problem.index.clone(),
+                                            name: problem.name.clone(),
+                                            rating: problem.rating.unwrap_or(difficulty as i32) as u32,
+                                        };
+                                        // Store on the player
+                                        if game.player1.id == pid {
+                                            game.player1.active_problem = Some(ap.clone());
+                                        } else if let Some(ref mut p2) = game.player2 {
+                                            p2.active_problem = Some(ap.clone());
+                                        }
+                                        // Broadcast ProblemAssigned to both players
+                                        let _ = tx.send(crate::state::GameEvent::Message(
+                                            ServerMessage::ProblemAssigned {
+                                                player_id: pid,
+                                                contest_id: ap.contest_id,
+                                                problem_index: ap.index,
+                                                problem_name: ap.name,
+                                                rating: ap.rating,
+                                            },
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            "Failed to pick problem for {}: {}",
+                                            shooter_handle, e
+                                        );
+                                        // Send error only to the locked player
+                                        let _ = tx.send(crate::state::GameEvent::Message(
+                                            ServerMessage::Error {
+                                                message: format!(
+                                                    "Could not assign a problem: {}. Try vetoing or wait.",
+                                                    e
+                                                ),
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     vec![]
                 }
                 Err(e) => vec![ServerMessage::Error {
@@ -965,20 +1047,21 @@ async fn handle_client_message(
                 }];
             }
 
-            // SECURITY: Enforce problem commitment per lock session.
-            // On first SolveCP call, commit to this (contest_id, problem_index).
-            // All subsequent calls in this lock session MUST use the same problem.
-            // This prevents switching to an easier/older solved problem mid-session.
+            // SECURITY: Server is the single source of truth for problem assignment.
+            // The player MUST solve the problem the server assigned when weapons locked.
+            // No client-side problem selection — prevents pre-solve exploits.
             match &player.active_problem {
                 None => {
-                    // First call: commit to this problem
-                    player.active_problem = Some((contest_id, problem_index.clone()));
+                    return vec![ServerMessage::Error {
+                        message: "No problem assigned yet. Wait for the server to assign one."
+                            .to_string(),
+                    }];
                 }
-                Some((committed_cid, committed_idx)) => {
-                    if *committed_cid != contest_id || committed_idx != &problem_index {
+                Some(assigned) => {
+                    if assigned.contest_id != contest_id || assigned.index != problem_index {
                         return vec![ServerMessage::Error {
                             message:
-                                "You must solve the problem you committed to. Use veto to skip."
+                                "You must solve the assigned problem. Use veto to get a new one."
                                     .to_string(),
                         }];
                     }
@@ -1062,6 +1145,7 @@ async fn handle_client_message(
                             // active_problem is cleared by unlock_weapons(), so always None here
                             active_problem_contest_id: None,
                             active_problem_index: None,
+                            active_problem_name: None,
                         }]
                     } else {
                         vec![]
@@ -1074,39 +1158,6 @@ async fn handle_client_message(
                     message: e.to_string(),
                 }],
             }
-        }
-
-        ClientMessage::CommitProblem {
-            contest_id,
-            problem_index,
-        } => {
-            // Lightweight: just store the displayed problem so it survives reconnect.
-            // No CF API call, no state change beyond active_problem.
-            let pid = match *player_id {
-                Some(p) => p,
-                None => return vec![],
-            };
-            let mut games = state.games.write().await;
-            let game = match games.get_mut(&game_id) {
-                Some(g) => g,
-                None => return vec![],
-            };
-            let player = if game.player1.id == pid {
-                &mut game.player1
-            } else if let Some(ref mut p) = game.player2 {
-                if p.id == pid {
-                    p
-                } else {
-                    return vec![];
-                }
-            } else {
-                return vec![];
-            };
-            // Only store if locked and no existing commitment
-            if player.is_locked && player.active_problem.is_none() {
-                player.active_problem = Some((contest_id, problem_index));
-            }
-            vec![] // No response needed
         }
 
         ClientMessage::Veto => {
@@ -1179,14 +1230,22 @@ async fn handle_client_message(
             // NOW increment vetoes_used
             player.vetoes_used += 1;
 
+            // Clear the current problem — veto means the player gets a new one after the penalty
+            player.active_problem = None;
+
             let elapsed = game
                 .game_started_at
                 .map(|s| s.elapsed().as_secs())
                 .unwrap_or(0);
             let game_remaining = game.config.game_duration_secs.saturating_sub(elapsed);
 
+            // Capture info for async problem pick after veto penalty
+            let handle = player.cf_handle.clone();
+            let difficulty = game.config.difficulty;
+            let tx = game.tx.clone();
+
             // vetoes_remaining is now calculated AFTER incrementing
-            vec![ServerMessage::GameUpdate {
+            let veto_response = vec![ServerMessage::GameUpdate {
                 status: format!("Veto activated. Wait {} minutes.", duration_secs / 60),
                 is_active: false,
                 heat: player.heat,
@@ -1194,10 +1253,50 @@ async fn handle_client_message(
                 time_remaining_secs: game_remaining,
                 vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
                 veto_time_remaining_secs: Some(duration_secs),
-                // Committed problem survives a veto — player must still solve the same problem.
-                active_problem_contest_id: player.active_problem.as_ref().map(|(cid, _)| *cid),
-                active_problem_index: player.active_problem.as_ref().map(|(_, idx)| idx.clone()),
-            }]
+                // Problem cleared — new one will be assigned after veto timer expires
+                active_problem_contest_id: None,
+                active_problem_index: None,
+                active_problem_name: None,
+            }];
+
+            // Drop lock and pick a new problem to assign immediately
+            // (the player can't verify until the veto timer expires anyway)
+            drop(games);
+
+            let assigned = state.cf_client.pick_problem(difficulty, &handle).await;
+
+            let mut games = state.games.write().await;
+            if let Some(game) = games.get_mut(&game_id) {
+                match assigned {
+                    Ok(problem) => {
+                        let ap = crate::state::AssignedProblem {
+                            contest_id: problem.contest_id.unwrap_or(0),
+                            index: problem.index.clone(),
+                            name: problem.name.clone(),
+                            rating: problem.rating.unwrap_or(difficulty as i32) as u32,
+                        };
+                        if game.player1.id == pid {
+                            game.player1.active_problem = Some(ap.clone());
+                        } else if let Some(ref mut p2) = game.player2 {
+                            p2.active_problem = Some(ap.clone());
+                        }
+                        let _ = tx.send(crate::state::GameEvent::Message(
+                            ServerMessage::ProblemAssigned {
+                                player_id: pid,
+                                contest_id: ap.contest_id,
+                                problem_index: ap.index,
+                                problem_name: ap.name,
+                                rating: ap.rating,
+                            },
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to pick problem after veto for {}: {}", handle, e);
+                    }
+                }
+            }
+
+            veto_response
         }
     }
 }

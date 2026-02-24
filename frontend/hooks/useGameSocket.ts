@@ -134,9 +134,10 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         vetoTimeRemaining: msg.veto_time_remaining_secs ?? null,
                         status: msg.status,
                         phase: newPhase,
-                        // Server-committed problem — ProblemPanel uses this to avoid picking random
-                        activeProblemContestId: msg.active_problem_contest_id ?? null,
-                        activeProblemIndex: msg.active_problem_index ?? null,
+                        // Server-assigned problem — authoritative source of truth
+                        activeProblemContestId: msg.active_problem_contest_id ?? prev.activeProblemContestId,
+                        activeProblemIndex: msg.active_problem_index ?? prev.activeProblemIndex,
+                        activeProblemName: msg.active_problem_name ?? prev.activeProblemName,
                     };
                 });
                 break;
@@ -199,6 +200,20 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 });
                 break;
 
+            case "ProblemAssigned":
+                // Server assigned a problem — update state so ProblemPanel displays it
+                setGameState(prev => {
+                    if (msg.player_id !== prev.playerId) return prev;
+                    return {
+                        ...prev,
+                        activeProblemContestId: msg.contest_id,
+                        activeProblemIndex: msg.problem_index,
+                        activeProblemName: msg.problem_name,
+                        activeProblemRating: msg.rating,
+                    };
+                });
+                break;
+
             case "WeaponsUnlocked":
                 // Only apply to the player this message is for
                 // Use functional update to access latest playerId (avoid stale closure)
@@ -212,6 +227,11 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         status: "Weapons unlocked",
                         // Only track problems solved when actually solved (not veto expiry)
                         problemsSolved: msg.reason === "solved" ? prev.problemsSolved + 1 : prev.problemsSolved,
+                        // Clear server-assigned problem on unlock
+                        activeProblemContestId: null,
+                        activeProblemIndex: null,
+                        activeProblemName: null,
+                        activeProblemRating: null,
                     };
                 });
                 break;
@@ -388,17 +408,6 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
         }
     }, [gameState.vetoesRemaining]);
 
-    // Action: Commit displayed problem to server (so it persists across reconnect)
-    const commitProblem = useCallback((contestId: number, problemIndex: string) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-                type: "CommitProblem",
-                contest_id: contestId,
-                problem_index: problemIndex
-            }));
-        }
-    }, []);
-
     return {
         gameState,
         isConnected,
@@ -406,7 +415,6 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
         fire,
         placeShips,
         solveCP,
-        commitProblem,
         veto,
     };
 }

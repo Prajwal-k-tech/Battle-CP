@@ -1,19 +1,20 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, RwLock, Mutex};
 use uuid::Uuid;
-//read
+
 #[derive(Clone)]
 pub struct AppState {
-    pub games: Arc<RwLock<HashMap<Uuid, Game>>>, //rewlock , many can read one can write, Arc allows shared ownership across threads
-    pub cf_client: crate::cf_client::CFClient, //initiates a cf client to deal with verification + problem fetching
+    pub games: Arc<RwLock<HashMap<Uuid, Game>>>,
+    pub cf_client: crate::cf_client::CFClient,
+    /// Rate limiter: maps CF handle → (first_request_time, count) for game creation
+    pub rate_limiter: Arc<Mutex<HashMap<String, (std::time::Instant, u32)>>>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        //kind stupid the llm did this but no performance issue ig except 1 extra call on the stack?
-        Self::new() //constructure for appstate
+        Self::new()
     }
 }
 
@@ -22,6 +23,7 @@ impl AppState {
         Self {
             games: Arc::new(RwLock::new(HashMap::new())),
             cf_client: crate::cf_client::CFClient::new(),
+            rate_limiter: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -68,10 +70,19 @@ pub struct PlayerStats {
 // Tie-break result
 #[derive(Clone, Debug, PartialEq)]
 pub enum TiebreakResult {
-    //results of game
     Player1Wins,
     Player2Wins,
     SuddenDeath,
+}
+
+/// A problem assigned by the server when weapons overheat.
+/// The server is the single source of truth for problem selection.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssignedProblem {
+    pub contest_id: i32,
+    pub index: String,
+    pub name: String,
+    pub rating: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,7 +115,6 @@ pub enum GameStatus {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Player {
-    //everything related to the player
     pub id: Uuid,
     pub cf_handle: String,
     pub grid: Grid,
@@ -118,14 +128,12 @@ pub struct Player {
     pub veto_started_at: Option<std::time::Instant>,
     #[serde(skip)]
     pub last_verification_attempt: Option<std::time::Instant>,
-    /// The CF problem committed to in the current lock session.
-    /// Set on first SolveCP call per lock; cleared on unlock.
-    /// Prevents switching to an easier old problem mid-session.
+    /// Server-assigned problem for the current lock session.
+    /// Set by the backend when weapons overheat; cleared on unlock.
+    /// The client can only solve THIS problem — no switching.
     #[serde(skip)]
-    pub active_problem: Option<(i32, String)>,
+    pub active_problem: Option<AssignedProblem>,
     /// Wall-clock Unix timestamp (seconds) when weapons were locked.
-    /// Used to ensure submitted solutions were created AFTER getting locked,
-    /// preventing pre-solve exploits.
     #[serde(skip)]
     pub locked_at_unix: Option<u64>,
 }

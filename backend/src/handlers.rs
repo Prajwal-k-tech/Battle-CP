@@ -40,6 +40,30 @@ pub async fn create_game(
         }
     }
 
+    // RATE LIMIT: max 3 game creations per CF handle per 5 minutes
+    {
+        let mut limiter = state.rate_limiter.lock().await;
+        let now = std::time::Instant::now();
+        let window = std::time::Duration::from_secs(300); // 5 minutes
+
+        let entry = limiter
+            .entry(handle.to_lowercase())
+            .or_insert((now, 0));
+
+        if now.duration_since(entry.0) > window {
+            // Window expired — reset
+            *entry = (now, 1);
+        } else {
+            entry.1 += 1;
+            if entry.1 > 3 {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(json!({ "error": "Too many games created. Please wait a few minutes." })),
+                );
+            }
+        }
+    }
+
     let player_id = Uuid::new_v4();
 
     // Parse veto strictness to penalties

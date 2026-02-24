@@ -1,26 +1,10 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { ExternalLink, Check, Clock, Loader2 } from "lucide-react";
-import { toast } from "sonner"; //this is the bottom error thingy 
-
-interface RawProblem { //problem we get from api
-    contestId: number;
-    index: string;
-    name: string;
-    rating?: number; // API might return undefined
-}
-
-interface RatedProblem { //cleansed problem we use 
-    contestId: number;
-    index: string;
-    name: string;
-    rating: number; // We guarantee this exists
-}
-
-const problemCache: Map<number, RatedProblem[]> = new Map(); // Cache now strictly typed!
+import { toast } from "sonner";
 
 interface ProblemPanelProps {
     cfHandle: string;
@@ -29,33 +13,31 @@ interface ProblemPanelProps {
     vetoesRemaining: number;
     maxVetoes: number;
     vetoTimeRemaining: number | null;
-    // Server-committed problem — when set, ProblemPanel MUST show this exact problem
+    // Server-assigned problem — the server is the single source of truth
     activeProblemContestId: number | null;
     activeProblemIndex: string | null;
+    activeProblemName: string | null;
+    activeProblemRating: number | null;
     onSolve: (contestId: number, problemIndex: string) => void;
-    onCommitProblem: (contestId: number, problemIndex: string) => void;
     onVeto: () => void;
 }
 
 import { useSound } from "@/context/SoundContext";
 
 export function ProblemPanel({
-    cfHandle,
     isLocked,
-    difficulty,
     vetoesRemaining,
     maxVetoes,
     vetoTimeRemaining,
     activeProblemContestId,
     activeProblemIndex,
+    activeProblemName,
+    activeProblemRating,
     onSolve,
-    onCommitProblem,
     onVeto,
 }: ProblemPanelProps) {
-    const [problem, setProblem] = useState<RatedProblem | null>(null);
-    const [loading, setLoading] = useState(false);
     const [verifying, setVerifying] = useState(false);
-    const [verifyCooldown, setVerifyCooldown] = useState(0); // Seconds remaining before can verify again
+    const [verifyCooldown, setVerifyCooldown] = useState(0);
     const [localVetoTime, setLocalVetoTime] = useState<number | null>(null);
     const { playAlarm, playInvalid: playVeto } = useSound();
 
@@ -66,13 +48,14 @@ export function ProblemPanel({
         }
     }, [isLocked, playAlarm]);
 
-    // ... rest of timer logic
+    // Sync veto timer from server
     useEffect(() => {
         if (vetoTimeRemaining !== null && vetoTimeRemaining > 0) {
             setLocalVetoTime(vetoTimeRemaining);
         }
     }, [vetoTimeRemaining]);
 
+    // Local veto countdown
     useEffect(() => {
         if (!isLocked || localVetoTime === null) return;
 
@@ -87,181 +70,24 @@ export function ProblemPanel({
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [isLocked]); // Only re-run when lock state changes - timer manages itself
+    }, [isLocked]); // Only re-run when lock state changes
 
-    // ... fetchProblem logic unchanged
-
-    const fetchProblem = useCallback(async () => {
-        setLoading(true);
-        try {
-            let problems = problemCache.get(difficulty); //check in our cache for problems of that difficulty
-            if (!problems) {//cache missed lets fetch
-                const response = await fetch(
-                    `https://codeforces.com/api/problemset.problems`
-                );
-                if (!response.ok) throw new Error("Failed to fetch problems");
-                const data = await response.json();
-                if (data.status !== "OK") throw new Error("Codeforces API error");
-                // Filter and cache ALL difficulty levels at once to minimize future calls
-                const allProblems = data.result.problems as RawProblem[];
-                const byRating = new Map<number, RatedProblem[]>();
-
-                for (const p of allProblems) {
-                    if (p.rating) {
-                        const ratedP = p as RatedProblem;
-                        const existing = byRating.get(p.rating) || [];
-                        if (existing.length < 1000) { // Cap at 1000 per rating
-                            existing.push(ratedP);
-                            byRating.set(p.rating, existing);
-                        }
-                    }
-                }
-
-                // Store all ratings in cache
-                byRating.forEach((probs, rating) => {
-                    problemCache.set(rating, probs);
-                });
-
-                problems = problemCache.get(difficulty) || [];
-            }
-
-            if (!problems || problems.length === 0) {
-                throw new Error(`No problems found at rating ${difficulty}`);
-            }
-
-            // Fetch user's entire solve history to deduplicate
-            const userHistoryRes = await fetch(`https://codeforces.com/api/user.status?handle=${cfHandle}`);
-            let solvedSet = new Set<string>();
-            if (userHistoryRes.ok) {
-                const historyData = await userHistoryRes.json();
-                if (historyData.status === "OK") {
-                    historyData.result.forEach((sub: any) => {
-                        if (sub.verdict === "OK" && sub.problem) {
-                            solvedSet.add(`${sub.problem.contestId}-${sub.problem.index}`);
-                        }
-                    });
-                }
-            }
-
-            // Filter out problems the user has already solved
-            const unseenProblems = problems.filter(p => !solvedSet.has(`${p.contestId}-${p.index}`));
-            const poolToUse = unseenProblems.length > 0 ? unseenProblems : problems; // Fallback to full pool if they magically solved all 1000
-
-            // Pick a random one from cache
-            const randomProblem = poolToUse[Math.floor(Math.random() * poolToUse.length)];
-            setProblem(randomProblem);
-        } catch (error) {
-            console.error("Failed to fetch problem:", error);
-            toast.error("Failed to load problem from Codeforces");
-
-            // Fallback problems by rating - used when CF API is down
-            const fallbacksByRating: Record<number, RatedProblem[]> = {
-                800: [
-                    { contestId: 1950, index: "A", name: "Stair, Peak, or Neither?", rating: 800 },
-                    { contestId: 1950, index: "B", name: "Upscaling", rating: 800 },
-                ],
-                1000: [
-                    { contestId: 1941, index: "B", name: "Rudolf and 121", rating: 1000 },
-                    { contestId: 1937, index: "B", name: "Binary Path", rating: 1000 },
-                ],
-                1200: [
-                    { contestId: 1941, index: "C", name: "Rudolf and the Ugly String", rating: 1200 },
-                    { contestId: 1937, index: "C", name: "Bitwise Operation Wizard", rating: 1200 },
-                ],
-                1400: [
-                    { contestId: 1941, index: "D", name: "Rudolf and the Ball Game", rating: 1400 },
-                    { contestId: 1929, index: "C", name: "Sasha and the Casino", rating: 1400 },
-                ],
-                1600: [
-                    { contestId: 1929, index: "D", name: "Sasha and a Walk in the City", rating: 1600 },
-                ],
-            };
-            // Find closest available rating
-            const availableRatings = Object.keys(fallbacksByRating).map(Number).sort((a, b) => a - b);
-            const closestRating = availableRatings.reduce((prev, curr) =>
-                Math.abs(curr - difficulty) < Math.abs(prev - difficulty) ? curr : prev
-            );
-            const fallbackProblems = fallbacksByRating[closestRating] || fallbacksByRating[800];
-            toast.warning(`Using fallback problem (rating ${closestRating})`);
-            setProblem(fallbackProblems[Math.floor(Math.random() * fallbackProblems.length)]);
-        } finally {
-            setLoading(false);
-        }
-    }, [difficulty]);
-
+    // Reset state when unlocked
     useEffect(() => {
-        if (isLocked && !problem) {
-            // If server has a committed problem, restore it instead of picking random
-            if (activeProblemContestId !== null && activeProblemIndex !== null) {
-                // Try to find the exact problem in our cache for its name
-                const cached = problemCache.get(difficulty);
-                const found = cached?.find(
-                    p => p.contestId === activeProblemContestId && p.index === activeProblemIndex
-                );
-                if (found) {
-                    setProblem(found);
-                } else {
-                    // Not in cache — fetch real name from CF instead of primitive stub
-                    setLoading(true);
-                    fetch(`https://codeforces.com/api/contest.standings?contestId=${activeProblemContestId}&from=1&count=1`)
-                        .then(res => {
-                            if (!res.ok) throw new Error("Failed to fetch contest");
-                            return res.json();
-                        })
-                        .then(data => {
-                            if (data.status === "OK" && data.result?.problems) {
-                                const realProblem = data.result.problems.find((p: any) => p.index === activeProblemIndex);
-                                if (realProblem) {
-                                    setProblem({
-                                        contestId: activeProblemContestId,
-                                        index: activeProblemIndex,
-                                        name: realProblem.name,
-                                        rating: realProblem.rating || difficulty,
-                                    });
-                                    return;
-                                }
-                            }
-                            throw new Error("Problem not found in API response");
-                        })
-                        .catch(err => {
-                            console.error("Failed to fetch restoring problem name:", err);
-                            // Fallback to minimal stub if API fails
-                            setProblem({
-                                contestId: activeProblemContestId,
-                                index: activeProblemIndex,
-                                name: `Problem ${activeProblemIndex}`,
-                                rating: difficulty,
-                            });
-                        })
-                        .finally(() => setLoading(false));
-                }
-                // No need to commit — server already has this committed
-            } else {
-                // No server commitment yet — pick a new random problem
-                fetchProblem();
-            }
-        } else if (!isLocked) {
-            setProblem(null);
+        if (!isLocked) {
             setLocalVetoTime(null);
+            setVerifyCooldown(0);
+            setVerifying(false);
         }
-    }, [isLocked, problem, fetchProblem, activeProblemContestId, activeProblemIndex, difficulty]);
-
-    // AUTO-COMMIT: Whenever we display a new problem, tell the server immediately
-    // so it persists across reconnect/refresh
-    useEffect(() => {
-        if (problem && isLocked) {
-            onCommitProblem(problem.contestId, problem.index);
-        }
-    }, [problem, isLocked, onCommitProblem]);
+    }, [isLocked]);
 
     const handleVerify = async () => {
-        if (!problem || verifyCooldown > 0) return;
+        if (!activeProblemContestId || !activeProblemIndex || verifyCooldown > 0) return;
         setVerifying(true);
         setVerifyCooldown(10); // Match backend's 10-second cooldown
         try {
-            onSolve(problem.contestId, problem.index);
+            onSolve(activeProblemContestId, activeProblemIndex);
             toast.info("Verifying submission...");
-            // Backend will send confirmation which unlocks weapons -> triggers effect cleanup
         } finally {
             setTimeout(() => setVerifying(false), 3000);
         }
@@ -295,6 +121,8 @@ export function ProblemPanel({
         return `${mins}:${String(s).padStart(2, "0")}`;
     };
 
+    const hasProblem = activeProblemContestId !== null && activeProblemIndex !== null;
+
     return (
         <AnimatePresence>
             {isLocked && (
@@ -318,33 +146,35 @@ export function ProblemPanel({
 
                         {/* Content */}
                         <div className="flex-1 p-4 overflow-y-auto">
-                            {loading ? (
+                            {!hasProblem ? (
                                 <div className="flex flex-col items-center justify-center h-full gap-3">
                                     <Loader2 className="w-8 h-8 animate-spin text-red-400" />
-                                    <span className="text-xs text-zinc-500">Loading problem...</span>
+                                    <span className="text-xs text-zinc-500">
+                                        Server is assigning a problem...
+                                    </span>
                                 </div>
-                            ) : problem ? (
+                            ) : (
                                 <div className="space-y-4">
                                     {/* Problem Info */}
                                     <div>
                                         <div className="flex items-center justify-between mb-1">
                                             <span className="text-xs font-mono text-zinc-400">
-                                                {problem.contestId}{problem.index}
+                                                {activeProblemContestId}{activeProblemIndex}
                                             </span>
-                                            {problem.rating && (
+                                            {activeProblemRating && (
                                                 <span className="text-xs font-mono text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
-                                                    {problem.rating}
+                                                    {activeProblemRating}
                                                 </span>
                                             )}
                                         </div>
                                         <h3 className="text-base font-bold text-white leading-tight">
-                                            {problem.name}
+                                            {activeProblemName || `Problem ${activeProblemIndex}`}
                                         </h3>
                                     </div>
 
                                     {/* Open Button */}
                                     <a
-                                        href={`https://codeforces.com/problemset/problem/${problem.contestId}/${problem.index}`}
+                                        href={`https://codeforces.com/problemset/problem/${activeProblemContestId}/${activeProblemIndex}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-bold text-sm transition"
@@ -403,19 +233,11 @@ export function ProblemPanel({
                                         </Button>
                                     </div>
                                 </div>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-full gap-3">
-                                    <span className="text-xs text-zinc-500">No problem loaded</span>
-                                    <Button onClick={fetchProblem} variant="outline" size="sm">
-                                        Load Problem
-                                    </Button>
-                                </div>
                             )}
                         </div>
                     </div>
                 </motion.div>
-            )
-            }
-        </AnimatePresence >
+            )}
+        </AnimatePresence>
     );
 }

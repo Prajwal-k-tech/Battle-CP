@@ -82,7 +82,7 @@ function GameContent({
     myShips: ShipPlacement[];
     setMyShips: (ships: ShipPlacement[]) => void;
 }) {
-    const { gameState, isConnected, gameNotFound, fire, placeShips, solveCP, commitProblem, veto } = useGameSocket(gameId, playerId, cfHandle);
+    const { gameState, isConnected, gameNotFound, fire, placeShips, solveCP, veto } = useGameSocket(gameId, playerId, cfHandle);
     const { playSuccess: playShipsConfirmed, playJoin, playHit, playMiss } = useSound();
 
     // Music integration
@@ -342,8 +342,9 @@ function GameContent({
                         vetoTimeRemaining={gameState.vetoTimeRemaining}
                         activeProblemContestId={gameState.activeProblemContestId}
                         activeProblemIndex={gameState.activeProblemIndex}
+                        activeProblemName={gameState.activeProblemName}
+                        activeProblemRating={gameState.activeProblemRating}
                         onSolve={solveCP}
-                        onCommitProblem={commitProblem}
                         onVeto={veto}
                     />
                 )}
