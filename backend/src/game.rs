@@ -99,12 +99,9 @@ impl Player {
                     .copied()
                     .unwrap_or(900);
                 if start.elapsed() >= std::time::Duration::from_secs(required_secs) {
-                    // Timer expired, unlock! Use same full reset as unlock_weapons()
-                    self.is_locked = false;
-                    self.heat = 0;
-                    self.active_problem = None; // Clear committed problem
-                    self.veto_started_at = None;
-                    self.last_verification_attempt = None; // Fresh session
+                    // Timer expired — use unlock_weapons() for consistent full reset
+                    // (clears heat, active_problem, veto_started_at, locked_at_unix, etc.)
+                    self.unlock_weapons();
                 } else {
                     return Err("Weapons Locked! Wait for veto timer.");
                 }

@@ -55,11 +55,11 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         veto_time_remaining_secs: Option<u64>,
         // Server-assigned problem for the current lock session.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        // NOTE: No skip_serializing_if — None serializes as `null` so the frontend
+        // can distinguish "no problem" (null) from "field not present" (undefined).
+        // This prevents stale problem data from persisting on the frontend.
         active_problem_contest_id: Option<i32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         active_problem_index: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         active_problem_name: Option<String>,
     },
     ShotResult {

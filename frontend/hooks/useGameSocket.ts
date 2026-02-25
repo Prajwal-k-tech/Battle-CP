@@ -117,11 +117,12 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     }
 
                     // Only transit to combat if we are actually playing
-                    if (msg.status === "Playing" && (prev.phase === "connecting" || prev.phase === "lobby" || prev.phase === "placement")) {
-                        // EXTRA SAFETY: Only transition if ships are placed
-                        if (prev.myShipsPlaced && prev.opponentShipsPlaced) {
-                            newPhase = "combat";
-                        }
+                    // Trust server status — the server only reports "Playing"/"SuddenDeath"
+                    // after both players have placed ships, so we don't need to guard on
+                    // myShipsPlaced/opponentShipsPlaced (which may not be set yet on reconnect).
+                    if ((msg.status === "Playing" || msg.status.includes("SUDDEN DEATH")) &&
+                        (prev.phase === "connecting" || prev.phase === "lobby" || prev.phase === "placement")) {
+                        newPhase = "combat";
                     }
                     // IMPORTANT: Don't change phase otherwise - preserve placement/combat phases
 
@@ -134,10 +135,19 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         vetoTimeRemaining: msg.veto_time_remaining_secs ?? null,
                         status: msg.status,
                         phase: newPhase,
-                        // Server-assigned problem — authoritative source of truth
-                        activeProblemContestId: msg.active_problem_contest_id ?? prev.activeProblemContestId,
-                        activeProblemIndex: msg.active_problem_index ?? prev.activeProblemIndex,
-                        activeProblemName: msg.active_problem_name ?? prev.activeProblemName,
+                        // Server-assigned problem — authoritative source of truth.
+                        // The server always includes these fields (null when no problem).
+                        // Use explicit undefined check: if field is present (even null), use it;
+                        // only fall back to prev if the field is truly absent (non-GameUpdate source).
+                        activeProblemContestId: msg.active_problem_contest_id !== undefined
+                            ? msg.active_problem_contest_id ?? null
+                            : prev.activeProblemContestId,
+                        activeProblemIndex: msg.active_problem_index !== undefined
+                            ? msg.active_problem_index ?? null
+                            : prev.activeProblemIndex,
+                        activeProblemName: msg.active_problem_name !== undefined
+                            ? msg.active_problem_name ?? null
+                            : prev.activeProblemName,
                     };
                 });
                 break;

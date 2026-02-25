@@ -935,45 +935,44 @@ async fn handle_client_message(
                             // Re-acquire write lock and store the result
                             let mut games = state.games.write().await;
                             if let Some(game) = games.get_mut(&game_id) {
-                                match assigned {
-                                    Ok(problem) => {
-                                        let ap = crate::state::AssignedProblem {
-                                            contest_id: problem.contest_id.unwrap_or(0),
-                                            index: problem.index.clone(),
-                                            name: problem.name.clone(),
-                                            rating: problem.rating.unwrap_or(difficulty as i32) as u32,
-                                        };
-                                        // Store on the player
-                                        if game.player1.id == pid {
-                                            game.player1.active_problem = Some(ap.clone());
-                                        } else if let Some(ref mut p2) = game.player2 {
-                                            p2.active_problem = Some(ap.clone());
+                                // Guard: game may have ended while the CF API call was in-flight
+                                if game.status == GameStatus::Finished {
+                                    // Discard — no point assigning a problem in a finished game
+                                } else {
+                                    match assigned {
+                                        Ok(problem) => {
+                                            let ap = crate::state::AssignedProblem {
+                                                contest_id: problem.contest_id.unwrap_or(0),
+                                                index: problem.index.clone(),
+                                                name: problem.name.clone(),
+                                                rating: problem.rating.unwrap_or(difficulty as i32) as u32,
+                                            };
+                                            // Store on the player
+                                            if game.player1.id == pid {
+                                                game.player1.active_problem = Some(ap.clone());
+                                            } else if let Some(ref mut p2) = game.player2 {
+                                                p2.active_problem = Some(ap.clone());
+                                            }
+                                            // Broadcast ProblemAssigned to both players
+                                            let _ = tx.send(crate::state::GameEvent::Message(
+                                                ServerMessage::ProblemAssigned {
+                                                    player_id: pid,
+                                                    contest_id: ap.contest_id,
+                                                    problem_index: ap.index,
+                                                    problem_name: ap.name,
+                                                    rating: ap.rating,
+                                                },
+                                            ));
                                         }
-                                        // Broadcast ProblemAssigned to both players
-                                        let _ = tx.send(crate::state::GameEvent::Message(
-                                            ServerMessage::ProblemAssigned {
-                                                player_id: pid,
-                                                contest_id: ap.contest_id,
-                                                problem_index: ap.index,
-                                                problem_name: ap.name,
-                                                rating: ap.rating,
-                                            },
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Failed to pick problem for {}: {}",
-                                            shooter_handle, e
-                                        );
-                                        // Send error only to the locked player
-                                        let _ = tx.send(crate::state::GameEvent::Message(
-                                            ServerMessage::Error {
-                                                message: format!(
-                                                    "Could not assign a problem: {}. Try vetoing or wait.",
-                                                    e
-                                                ),
-                                            },
-                                        ));
+                                        Err(e) => {
+                                            // Log only — don't broadcast error to BOTH players.
+                                            // The locked player sees "Server is assigning a problem..."
+                                            // in the ProblemPanel; they can use Veto to retry.
+                                            tracing::error!(
+                                                "Failed to pick problem for {}: {}",
+                                                shooter_handle, e
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -1267,31 +1266,34 @@ async fn handle_client_message(
 
             let mut games = state.games.write().await;
             if let Some(game) = games.get_mut(&game_id) {
-                match assigned {
-                    Ok(problem) => {
-                        let ap = crate::state::AssignedProblem {
-                            contest_id: problem.contest_id.unwrap_or(0),
-                            index: problem.index.clone(),
-                            name: problem.name.clone(),
-                            rating: problem.rating.unwrap_or(difficulty as i32) as u32,
-                        };
-                        if game.player1.id == pid {
-                            game.player1.active_problem = Some(ap.clone());
-                        } else if let Some(ref mut p2) = game.player2 {
-                            p2.active_problem = Some(ap.clone());
+                // Guard: game may have ended while the CF API call was in-flight
+                if game.status != crate::state::GameStatus::Finished {
+                    match assigned {
+                        Ok(problem) => {
+                            let ap = crate::state::AssignedProblem {
+                                contest_id: problem.contest_id.unwrap_or(0),
+                                index: problem.index.clone(),
+                                name: problem.name.clone(),
+                                rating: problem.rating.unwrap_or(difficulty as i32) as u32,
+                            };
+                            if game.player1.id == pid {
+                                game.player1.active_problem = Some(ap.clone());
+                            } else if let Some(ref mut p2) = game.player2 {
+                                p2.active_problem = Some(ap.clone());
+                            }
+                            let _ = tx.send(crate::state::GameEvent::Message(
+                                ServerMessage::ProblemAssigned {
+                                    player_id: pid,
+                                    contest_id: ap.contest_id,
+                                    problem_index: ap.index,
+                                    problem_name: ap.name,
+                                    rating: ap.rating,
+                                },
+                            ));
                         }
-                        let _ = tx.send(crate::state::GameEvent::Message(
-                            ServerMessage::ProblemAssigned {
-                                player_id: pid,
-                                contest_id: ap.contest_id,
-                                problem_index: ap.index,
-                                problem_name: ap.name,
-                                rating: ap.rating,
-                            },
-                        ));
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to pick problem after veto for {}: {}", handle, e);
+                        Err(e) => {
+                            tracing::error!("Failed to pick problem after veto for {}: {}", handle, e);
+                        }
                     }
                 }
             }
