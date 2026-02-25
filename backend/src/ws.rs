@@ -1205,6 +1205,13 @@ async fn handle_client_message(
                 }];
             }
 
+            // Check if already on veto timer - can't double veto
+            if player.veto_started_at.is_some() {
+                return vec![ServerMessage::Error {
+                    message: "Already on veto timer. Wait for it to expire.".to_string(),
+                }];
+            }
+
             // Check if player has vetoes remaining (use config, not hardcoded 3)
             if player.vetoes_used >= game.config.max_vetoes {
                 return vec![ServerMessage::Error {
@@ -1229,7 +1236,10 @@ async fn handle_client_message(
             // NOW increment vetoes_used
             player.vetoes_used += 1;
 
-            // Clear the current problem — veto means the player gets a new one after the penalty
+            // Clear the current problem — veto means SKIP solving entirely.
+            // The player waits out the penalty, then unlock_weapons() is called
+            // by the background ticker. No new problem is assigned during veto.
+            // When they overheat again later, a new problem will be picked then.
             player.active_problem = None;
 
             let elapsed = game
@@ -1238,13 +1248,8 @@ async fn handle_client_message(
                 .unwrap_or(0);
             let game_remaining = game.config.game_duration_secs.saturating_sub(elapsed);
 
-            // Capture info for async problem pick after veto penalty
-            let handle = player.cf_handle.clone();
-            let difficulty = game.config.difficulty;
-            let tx = game.tx.clone();
-
             // vetoes_remaining is now calculated AFTER incrementing
-            let veto_response = vec![ServerMessage::GameUpdate {
+            vec![ServerMessage::GameUpdate {
                 status: format!("Veto activated. Wait {} minutes.", duration_secs / 60),
                 is_active: false,
                 heat: player.heat,
@@ -1252,53 +1257,11 @@ async fn handle_client_message(
                 time_remaining_secs: game_remaining,
                 vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
                 veto_time_remaining_secs: Some(duration_secs),
-                // Problem cleared — new one will be assigned after veto timer expires
+                // Problem cleared — veto skips solving, no new problem assigned
                 active_problem_contest_id: None,
                 active_problem_index: None,
                 active_problem_name: None,
-            }];
-
-            // Drop lock and pick a new problem to assign immediately
-            // (the player can't verify until the veto timer expires anyway)
-            drop(games);
-
-            let assigned = state.cf_client.pick_problem(difficulty, &handle).await;
-
-            let mut games = state.games.write().await;
-            if let Some(game) = games.get_mut(&game_id) {
-                // Guard: game may have ended while the CF API call was in-flight
-                if game.status != crate::state::GameStatus::Finished {
-                    match assigned {
-                        Ok(problem) => {
-                            let ap = crate::state::AssignedProblem {
-                                contest_id: problem.contest_id.unwrap_or(0),
-                                index: problem.index.clone(),
-                                name: problem.name.clone(),
-                                rating: problem.rating.unwrap_or(difficulty as i32) as u32,
-                            };
-                            if game.player1.id == pid {
-                                game.player1.active_problem = Some(ap.clone());
-                            } else if let Some(ref mut p2) = game.player2 {
-                                p2.active_problem = Some(ap.clone());
-                            }
-                            let _ = tx.send(crate::state::GameEvent::Message(
-                                ServerMessage::ProblemAssigned {
-                                    player_id: pid,
-                                    contest_id: ap.contest_id,
-                                    problem_index: ap.index,
-                                    problem_name: ap.name,
-                                    rating: ap.rating,
-                                },
-                            ));
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to pick problem after veto for {}: {}", handle, e);
-                        }
-                    }
-                }
-            }
-
-            veto_response
+            }]
         }
     }
 }

@@ -146,7 +146,22 @@ export function ProblemPanel({
 
                         {/* Content */}
                         <div className="flex-1 p-4 overflow-y-auto">
-                            {!hasProblem ? (
+                            {/* During veto penalty — no problem, just waiting */}
+                            {localVetoTime !== null && localVetoTime > 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+                                    <Clock className="w-10 h-10 text-purple-400 animate-pulse" />
+                                    <div>
+                                        <p className="text-sm font-bold text-purple-400 mb-1">VETO PENALTY</p>
+                                        <p className="text-2xl font-mono font-bold text-white">
+                                            {formatTime(localVetoTime)}
+                                        </p>
+                                    </div>
+                                    <p className="text-xs text-zinc-500">
+                                        Weapons unlock when timer expires.
+                                        No problem to solve during veto.
+                                    </p>
+                                </div>
+                            ) : !hasProblem ? (
                                 <div className="flex flex-col items-center justify-center h-full gap-3">
                                     <Loader2 className="w-8 h-8 animate-spin text-red-400" />
                                     <span className="text-xs text-zinc-500">
