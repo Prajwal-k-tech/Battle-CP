@@ -24,6 +24,7 @@ async fn main() -> anyhow::Result<()> {
                             
     let app = Router::new()
         .route("/", get(root))
+        .route("/health", get(health))
         .route("/api/game", axum::routing::post(handlers::create_game))
         .route(
             "/api/contest/{contest_id}",
@@ -71,4 +72,26 @@ async fn main() -> anyhow::Result<()> {
 
 async fn root() -> &'static str {
     "Battle CP Backend Online, made by oGhostyyy"
+}
+
+/// Health check for Azure Container Apps probes and uptime monitoring.
+/// Returns active game count for observability.
+async fn health(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> axum::Json<serde_json::Value> {
+    let games = state.games.read().await;
+    let total = games.len();
+    let active = games
+        .values()
+        .filter(|g| {
+            g.status == backend::state::GameStatus::Playing
+                || g.status == backend::state::GameStatus::SuddenDeath
+        })
+        .count();
+    drop(games);
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "games_total": total,
+        "games_active": active,
+    }))
 }

@@ -253,6 +253,7 @@ async fn handle_client_message(
                         game_id,
                         player_id: pid,
                         difficulty: game.config.difficulty,
+                        difficulty_mode: game.config.difficulty_mode.clone(),
                         max_heat: game.config.heat_threshold,
                         max_vetoes: game.config.max_vetoes,
                     });
@@ -432,46 +433,10 @@ async fn handle_client_message(
 
                     // P2 is joining - get P1's ID before joining
                     let p1_id = game.player1.id;
-                    let handle_to_verify = cf_handle.clone();
 
-                    // Bug 1 fix: Drop write lock BEFORE network call to prevent server-wide deadlock
-                    drop(games);
-
-                    // Verify CF Handle exists (now without holding the lock)
-                    let handle_exists = state
-                        .cf_client
-                        .verify_user_exists(&handle_to_verify)
-                        .await
-                        .unwrap_or(false); // Fail closed if API error
-
-                    if !handle_exists {
-                        return vec![ServerMessage::Error {
-                            message: format!("Codeforces handle '{}' not found", handle_to_verify),
-                        }];
-                    }
-
-                    // Re-acquire write lock and re-validate game state
-                    let mut games = state.games.write().await;
-                    let game = match games.get_mut(&game_id) {
-                        Some(g) => g,
-                        None => {
-                            return vec![ServerMessage::Error {
-                                message: "Game no longer exists".to_string(),
-                            }]
-                        }
-                    };
-                    // Re-check P2 slot wasn't taken while we were verifying
-                    if game.player2.is_some() {
-                        return vec![ServerMessage::Error {
-                            message: "Game slot was just taken. Please try another game."
-                                .to_string(),
-                        }];
-                    }
-                    if game.status == crate::state::GameStatus::Finished {
-                        return vec![ServerMessage::Error {
-                            message: "Game has already ended".to_string(),
-                        }];
-                    }
+                    // Trust the user's CF handle — verification removed for performance.
+                    // Entering a wrong handle is self-punishing: the player can't verify
+                    // CP solutions on someone else's account, so weapons stay locked forever.
 
                     if let Err(e) = game.join(pid, cf_handle) {
                         return vec![ServerMessage::Error {
@@ -500,6 +465,7 @@ async fn handle_client_message(
                             game_id,
                             player_id: pid,
                             difficulty: game.config.difficulty,
+                            difficulty_mode: game.config.difficulty_mode.clone(),
                             max_heat: game.config.heat_threshold,
                             max_vetoes: game.config.max_vetoes,
                         },
@@ -520,6 +486,7 @@ async fn handle_client_message(
                     game_id,
                     player_id: pid,
                     difficulty: game.config.difficulty,
+                    difficulty_mode: game.config.difficulty_mode.clone(),
                     max_heat: game.config.heat_threshold,
                     max_vetoes: game.config.max_vetoes,
                 }]
@@ -917,6 +884,7 @@ async fn handle_client_message(
                             game.player2.as_ref().map(|p| p.cf_handle.clone()).unwrap_or_default()
                         };
                         let difficulty = game.config.difficulty;
+                        let difficulty_mode = game.config.difficulty_mode.clone();
                         let tx = game.tx.clone();
 
                         // Check if already has a problem (shouldn't happen, but be safe)
@@ -930,7 +898,7 @@ async fn handle_client_message(
                             // Drop the write lock so we can do async I/O
                             drop(games);
 
-                            let assigned = state.cf_client.pick_problem(difficulty, &shooter_handle).await;
+                            let assigned = state.cf_client.pick_problem(difficulty, difficulty_mode, &shooter_handle).await;
 
                             // Re-acquire write lock and store the result
                             let mut games = state.games.write().await;
@@ -942,10 +910,10 @@ async fn handle_client_message(
                                     match assigned {
                                         Ok(problem) => {
                                             let ap = crate::state::AssignedProblem {
-                                                contest_id: problem.contest_id.unwrap_or(0),
+                                                contest_id: problem.contest_id,
                                                 index: problem.index.clone(),
                                                 name: problem.name.clone(),
-                                                rating: problem.rating.unwrap_or(difficulty as i32) as u32,
+                                                rating: problem.rating,
                                             };
                                             // Store on the player
                                             if game.player1.id == pid {

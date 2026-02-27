@@ -36,6 +36,7 @@ export interface GameState {
     vetoTimeRemaining: number | null;
     gameTimeRemaining: number;
     difficulty: number;
+    difficulty_mode: "cf" | "band";
     status: string;
 
     // Stats
@@ -87,6 +88,7 @@ export const initialGameState: GameState = {
     gameOverReason: null,
     lastError: null,
     difficulty: 800,
+    difficulty_mode: "cf",
     activeProblemContestId: null,
     activeProblemIndex: null,
     activeProblemName: null,
@@ -104,7 +106,7 @@ export type ClientMessage =
 // Server -> Client Messages
 export type ServerMessage =
     // Lobby
-    | { type: "GameJoined"; game_id: string; player_id: string; difficulty: number; max_heat: number; max_vetoes: number }
+    | { type: "GameJoined"; game_id: string; player_id: string; difficulty: number; difficulty_mode: "cf" | "band"; max_heat: number; max_vetoes: number }
     | { type: "PlayerJoined"; player_id: string }
 
     // Placement

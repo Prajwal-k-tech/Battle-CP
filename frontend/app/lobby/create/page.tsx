@@ -25,6 +25,14 @@ const GRID_MUL: [number, number] = [2, 1];
 
 import { useSound } from "@/context/SoundContext";
 
+const BANDS = [
+    { id: 0, label: "Super Easy", range: "800–1200", color: "text-emerald-400" },
+    { id: 1, label: "Easy",       range: "1200–1500", color: "text-green-400"   },
+    { id: 2, label: "Medium",     range: "1500–1900", color: "text-yellow-400"  },
+    { id: 3, label: "Hard",       range: "1900–2400", color: "text-orange-400"  },
+    { id: 4, label: "Very Hard",  range: "2400+",     color: "text-red-400"     },
+] as const;
+
 export default function CreateGamePage() {
     const router = useRouter();
     const [cfHandle, setCfHandle] = useState("");
@@ -33,10 +41,16 @@ export default function CreateGamePage() {
     const [gameId, setGameId] = useState<string | null>(null);
 
     // Game Settings
-    const [difficulty, setDifficulty] = useState(800);
+    const [difficultyMode, setDifficultyMode] = useState<"cf" | "band">("cf");
+    const [cfDifficulty, setCfDifficulty] = useState(800);    // used in CF mode
+    const [bandDifficulty, setBandDifficulty] = useState(1);  // 0-4, used in Band mode
     const [timeLimit, setTimeLimit] = useState(45); // minutes
     const [heatThreshold, setHeatThreshold] = useState(7); // shots before overheat
     const [vetoStrictness, setVetoStrictness] = useState<"low" | "medium" | "high">("medium");
+
+    // Derived display values
+    const difficulty  = difficultyMode === "cf" ? cfDifficulty : bandDifficulty;
+    const selectedBand = BANDS[bandDifficulty];
 
     const handleCreate = async () => {
         if (!cfHandle.trim()) {
@@ -53,6 +67,7 @@ export default function CreateGamePage() {
                 body: JSON.stringify({
                     cf_handle: cfHandle.trim(),
                     difficulty,
+                    difficulty_mode: difficultyMode,
                     heat_threshold: heatThreshold,
                     game_duration_mins: timeLimit,
                     veto_strictness: vetoStrictness,
@@ -75,8 +90,6 @@ export default function CreateGamePage() {
 
             toast.success("Uplink Established", { description: `Lobby ID: ${newGameId}` });
 
-            // Auto-redirect to game page - P1 enters immediately
-            // Don't set gameId state - it causes a flash of the old UI before redirect
             router.push(`/game/${newGameId}`);
         } catch (error) {
             console.error("Create game error:", error);
@@ -87,7 +100,6 @@ export default function CreateGamePage() {
                 return;
             }
 
-            // Bug 7 fix: Show error toast and let user retry instead of creating ghost games
             toast.error("Failed to create game", {
                 description: error instanceof Error ? error.message : "Please check your connection and try again.",
             });
@@ -108,6 +120,11 @@ export default function CreateGamePage() {
             router.push(`/game/${gameId}`);
         }
     };
+
+    // Summary label shown in the protocol card
+    const difficultySummary = difficultyMode === "cf"
+        ? `CF ${cfDifficulty}`
+        : `${selectedBand.label} (${selectedBand.range})`;
 
     return (
         <div className="relative min-h-screen w-full flex items-center justify-center bg-black overflow-hidden">
@@ -174,21 +191,77 @@ export default function CreateGamePage() {
                                                     <DialogDescription>Customize game parameters.</DialogDescription>
                                                 </DialogHeader>
                                                 <div className="py-4 space-y-5">
-                                                    {/* Problem Difficulty */}
-                                                    <div className="space-y-2">
-                                                        <div className="flex justify-between text-xs font-mono">
-                                                            <span className="text-zinc-400">Problem Difficulty</span>
-                                                            <span className="text-emerald-400">{difficulty}</span>
+
+                                                    {/* --- Difficulty Mode Toggle --- */}
+                                                    <div className="space-y-3">
+                                                        <span className="text-xs font-mono text-zinc-400">Difficulty System</span>
+                                                        <div className="flex gap-2">
+                                                            <Button
+                                                                size="sm"
+                                                                variant={difficultyMode === "cf" ? "default" : "outline"}
+                                                                className={`flex-1 text-xs ${difficultyMode === "cf" ? "bg-blue-600 hover:bg-blue-500" : "border-white/10 text-zinc-400"}`}
+                                                                onClick={() => setDifficultyMode("cf")}
+                                                            >
+                                                                CF MODE
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant={difficultyMode === "band" ? "default" : "outline"}
+                                                                className={`flex-1 text-xs ${difficultyMode === "band" ? "bg-purple-600 hover:bg-purple-500" : "border-white/10 text-zinc-400"}`}
+                                                                onClick={() => setDifficultyMode("band")}
+                                                            >
+                                                                BAND MODE
+                                                            </Button>
                                                         </div>
-                                                        <Slider
-                                                            min={800}
-                                                            max={2000}
-                                                            step={100}
-                                                            value={[difficulty]}
-                                                            onValueChange={(v) => setDifficulty(v[0])}
-                                                            className="py-1"
-                                                        />
+                                                        <p className="text-[10px] text-zinc-500 font-mono">
+                                                            {difficultyMode === "cf"
+                                                                ? "Pick an exact CF rating. Problems are assigned at that level."
+                                                                : "Pick a difficulty tier. Problems span a rating range — great for casual play."}
+                                                        </p>
                                                     </div>
+
+                                                    {/* --- CF Mode: Slider --- */}
+                                                    {difficultyMode === "cf" && (
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between text-xs font-mono">
+                                                                <span className="text-zinc-400">CF Rating</span>
+                                                                <span className="text-blue-400">{cfDifficulty}</span>
+                                                            </div>
+                                                            <Slider
+                                                                min={800}
+                                                                max={3500}
+                                                                step={100}
+                                                                value={[cfDifficulty]}
+                                                                onValueChange={(v) => setCfDifficulty(v[0])}
+                                                                className="py-1"
+                                                            />
+                                                            <div className="flex justify-between text-[10px] text-zinc-600 font-mono">
+                                                                <span>800 (newbie)</span>
+                                                                <span>3500 (legendary)</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* --- Band Mode: 5 Tier Buttons --- */}
+                                                    {difficultyMode === "band" && (
+                                                        <div className="space-y-2">
+                                                            <span className="text-xs font-mono text-zinc-400">Difficulty Tier</span>
+                                                            <div className="grid grid-cols-1 gap-1.5">
+                                                                {BANDS.map((b) => (
+                                                                    <Button
+                                                                        key={b.id}
+                                                                        size="sm"
+                                                                        variant={bandDifficulty === b.id ? "default" : "outline"}
+                                                                        className={`w-full justify-between text-xs h-8 ${bandDifficulty === b.id ? "bg-purple-600 border-purple-500" : "border-white/10"}`}
+                                                                        onClick={() => setBandDifficulty(b.id)}
+                                                                    >
+                                                                        <span className={b.color}>{b.label}</span>
+                                                                        <span className="text-zinc-400 font-mono text-[10px]">{b.range}</span>
+                                                                    </Button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
 
                                                     {/* Time Limit */}
                                                     <div className="space-y-2">
@@ -247,8 +320,10 @@ export default function CreateGamePage() {
                                         </Dialog>
                                     </div>
                                     <div className="p-3 border border-white/10 rounded-md bg-white/5 flex justify-between items-center">
-                                        <span className="text-zinc-300 font-mono text-xs">{difficulty} • {timeLimit}m • {heatThreshold}🔥</span>
-                                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded font-arcade">Custom</span>
+                                        <span className="text-zinc-300 font-mono text-xs truncate mr-2">{difficultySummary} • {timeLimit}m • {heatThreshold}🔥</span>
+                                        <span className={`text-[10px] px-2 py-1 rounded font-arcade shrink-0 ${difficultyMode === "cf" ? "bg-blue-500/20 text-blue-400" : "bg-purple-500/20 text-purple-400"}`}>
+                                            {difficultyMode === "cf" ? "CF" : "BAND"}
+                                        </span>
                                     </div>
                                 </div>
 

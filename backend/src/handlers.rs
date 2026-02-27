@@ -1,4 +1,4 @@
-use crate::state::{AppState, Game, GameConfig};
+use crate::state::{AppState, DifficultyMode, Game, GameConfig};
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -7,7 +7,11 @@ use uuid::Uuid;
 #[derive(Deserialize)]
 pub struct CreateGameRequest {
     pub cf_handle: String,
+    /// In Cf mode  : CF rating (800 – 3500)
+    /// In Band mode: band id  (0 = Super Easy … 4 = Very Hard)
     pub difficulty: Option<u32>,
+    /// "cf" (default) or "band"
+    pub difficulty_mode: Option<DifficultyMode>,
     pub heat_threshold: Option<u32>,
     pub game_duration_mins: Option<u32>,
     pub veto_strictness: Option<String>, // "low", "medium", "high"
@@ -19,26 +23,9 @@ pub async fn create_game(
 ) -> (StatusCode, Json<Value>) {
     let handle = payload.cf_handle.trim();
 
-    // Validate CF handle exists (fail closed for security)
-    match state.cf_client.verify_user_exists(handle).await {
-        Ok(true) => {} // User exists, continue
-        Ok(false) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Codeforces handle not found" })),
-            );
-        }
-        Err(e) => {
-            // Fail closed: reject if we can't verify (CF API might be down)
-            tracing::warn!("CF validation failed, rejecting game creation: {}", e);
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(
-                    json!({ "error": "Unable to verify Codeforces handle. Please try again later." }),
-                ),
-            );
-        }
-    }
+    // Trust the user's CF handle — verification removed for performance.
+    // Entering a wrong handle is self-punishing: the player won't be able
+    // to verify CP solutions, so they can never unlock weapons.
 
     // RATE LIMIT: max 3 game creations per CF handle per 5 minutes
     {
@@ -73,8 +60,17 @@ pub async fn create_game(
         _ => [420, 600, 900],             // 7, 10, 15 min (default/medium)
     };
 
+    let mode = payload.difficulty_mode.unwrap_or(DifficultyMode::Cf);
+
+    // Validate difficulty range depends on the mode
+    let difficulty = match mode {
+        DifficultyMode::Cf => payload.difficulty.unwrap_or(800).clamp(800, 3500),
+        DifficultyMode::Band => payload.difficulty.unwrap_or(0).clamp(0, 4),
+    };
+
     let config = GameConfig {
-        difficulty: payload.difficulty.unwrap_or(800).clamp(800, 3500),
+        difficulty,
+        difficulty_mode: mode,
         heat_threshold: payload.heat_threshold.unwrap_or(7).clamp(3, 20),
         // Prevent overflow: clamp minutes first, then convert
         game_duration_secs: payload

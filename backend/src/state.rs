@@ -34,10 +34,24 @@ pub enum GameEvent {
     Message(crate::protocol::ServerMessage),
 }
 
-// Game configuration with sensible defaults
+/// Which difficulty system to use when picking problems for a locked player.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DifficultyMode {
+    /// Standard CF mode: `difficulty` is an exact CF rating (800, 900, … 3500).
+    #[default]
+    Cf,
+    /// Band mode: `difficulty` is a band id (0 = SuperEasy … 4 = VeryHard).
+    /// Bands map to CF rating ranges and give a more casual / beginner-friendly experience.
+    Band,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GameConfig {
-    pub difficulty: u32,          // CP problem rating: 700-1200
+    /// In Cf mode  : exact CF rating (800 / 900 / … / 3500)
+    /// In Band mode: band id (0 = SuperEasy, 1 = Easy, 2 = Medium, 3 = Hard, 4 = VeryHard)
+    pub difficulty: u32,
+    pub difficulty_mode: DifficultyMode,
     pub heat_threshold: u32,      // 5, 7, 10, 15
     pub veto_penalties: [u64; 3], // seconds: 7, 10, 15 min
     pub max_vetoes: u32,
@@ -45,10 +59,10 @@ pub struct GameConfig {
 }
 
 impl Default for GameConfig {
-    //setting up the default difficulty
     fn default() -> Self {
         Self {
             difficulty: 800,
+            difficulty_mode: DifficultyMode::Cf,
             heat_threshold: 7,
             veto_penalties: [420, 600, 900], // 7, 10, 15 minutes
             max_vetoes: 3,

@@ -7,26 +7,132 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
+use crate::state::DifficultyMode;
+
+// ---------------------------------------------------------------------------
+// Cache type aliases
+// ---------------------------------------------------------------------------
+
 /// Type alias for the contest-problem cache (keyed by contest_id)
-type ProblemCache = Arc<Mutex<HashMap<i32, (Instant, Vec<Problem>)>>>;
-/// Type alias for the user existence cache
-type UserCache = Arc<Mutex<HashMap<String, (Instant, bool)>>>;
-/// Type alias for the problem-by-rating cache (keyed by rating)
-type RatingProblemCache = Arc<Mutex<HashMap<u32, (Instant, Vec<Problem>)>>>;
+type ProblemCache = Arc<Mutex<HashMap<i32, (Instant, Vec<ContestProblem>)>>>;
 /// Type alias for the player-solved-problems cache (keyed by handle)
 type SolvedCache = Arc<Mutex<HashMap<String, (Instant, HashSet<String>)>>>;
+
+// ---------------------------------------------------------------------------
+// Static problem database – loaded once at startup from embedded JSON
+// ---------------------------------------------------------------------------
+
+/// Difficulty bands.  The `difficulty` field in `Band` mode is one of these ids.
+/// Ranges are CF ratings (inclusive on both ends).
+pub const BANDS: &[(u8, &str, u32, u32)] = &[
+    (0, "Super Easy", 800,  1200),
+    (1, "Easy",       1201, 1500),
+    (2, "Medium",     1501, 1900),
+    (3, "Hard",       1901, 2400),
+    (4, "Very Hard",  2401, 9999),
+];
+
+/// A pre-scraped Codeforces problem from `backend/data/problems.json`.
+/// Short field names match the JSON keys produced by `scripts/build_problem_db.py`.
+#[derive(Debug, Deserialize, Clone)]
+pub struct StaticProblem {
+    /// contestId
+    #[serde(rename = "c")]
+    pub contest_id: i32,
+    /// problem index (e.g. "A", "B", "C1")
+    #[serde(rename = "i")]
+    pub index: String,
+    /// problem name
+    #[serde(rename = "n")]
+    pub name: String,
+    /// CF rating (e.g. 800, 1500, 2400)
+    #[serde(rename = "r")]
+    pub rating: u32,
+    /// solve count from CF problemStatistics
+    #[serde(rename = "s")]
+    pub solved_count: u64,
+    /// division tag: Div1/Div2/Div3/Div4/Educational/Global/Other
+    #[serde(rename = "d")]
+    pub division: String,
+    /// band id 0-4 (-1 if unclassified)
+    #[serde(rename = "b")]
+    pub band: i8,
+}
+
+/// In-memory problem database built from the embedded JSON at startup.
+pub struct ProblemDb {
+    /// All problems in insertion order (sorted by rating asc, solved_count desc)
+    problems: Vec<StaticProblem>,
+    /// problem indices grouped by exact CF rating
+    by_rating: HashMap<u32, Vec<usize>>,
+    /// problem indices grouped by band id
+    by_band: HashMap<i8, Vec<usize>>,
+}
+
+impl ProblemDb {
+    fn new() -> Self {
+        // Embedded at compile time — zero runtime I/O, works in Docker with no extra files.
+        static RAW: &[u8] = include_bytes!("../data/problems.json");
+
+        let problems: Vec<StaticProblem> = serde_json::from_slice(RAW)
+            .expect("Failed to parse embedded problems.json — re-run scripts/build_problem_db.py and recompile");
+
+        let mut by_rating: HashMap<u32, Vec<usize>> = HashMap::new();
+        let mut by_band:   HashMap<i8,  Vec<usize>> = HashMap::new();
+
+        for (idx, p) in problems.iter().enumerate() {
+            by_rating.entry(p.rating).or_default().push(idx);
+            by_band.entry(p.band).or_default().push(idx);
+        }
+
+        tracing::info!(
+            "ProblemDb loaded: {} problems, {} rating levels, {} bands",
+            problems.len(),
+            by_rating.len(),
+            by_band.len()
+        );
+
+        Self { problems, by_rating, by_band }
+    }
+
+    /// Return the problem pool for the given difficulty + mode.
+    fn pool(&self, difficulty: u32, mode: &DifficultyMode) -> Vec<&StaticProblem> {
+        match mode {
+            DifficultyMode::Cf => {
+                self.by_rating
+                    .get(&difficulty)
+                    .map(|idxs| idxs.iter().map(|&i| &self.problems[i]).collect())
+                    .unwrap_or_default()
+            }
+            DifficultyMode::Band => {
+                let band_id = difficulty as i8;
+                self.by_band
+                    .get(&band_id)
+                    .map(|idxs| idxs.iter().map(|&i| &self.problems[i]).collect())
+                    .unwrap_or_default()
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CFClient
+// ---------------------------------------------------------------------------
 
 #[derive(Clone)]
 pub struct CFClient {
     client: Client,
-    cache: ProblemCache,
-    user_cache: UserCache,
-    rating_cache: RatingProblemCache,
+    /// Cache for contest.standings results (used only by /api/contest/:id endpoint)
+    contest_cache: ProblemCache,
+    /// Cache for user.status solved-set lookups
     solved_cache: SolvedCache,
+    /// Static problem database (shared across all clones via Arc)
+    problem_db: Arc<ProblemDb>,
 }
 
+// Problem shape returned by contest.standings – used only for /api/contest/:id
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Problem {
+pub struct ContestProblem {
     #[serde(rename = "contestId")]
     pub contest_id: Option<i32>,
     pub index: String,
@@ -35,42 +141,38 @@ pub struct Problem {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ContestStandingsResponse {
     status: String,
     result: ContestStandingsResult,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ContestStandingsResult {
-    problems: Vec<Problem>,
+    problems: Vec<ContestProblem>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct UserStatusResponse {
     status: String,
     result: Vec<Submission>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Submission {
-    id: i64,
     pub verdict: Option<String>,
-    pub problem: Problem,
+    pub problem: SubmissionProblem,
     /// Unix timestamp (seconds) when submission was created on Codeforces
     #[serde(rename = "creationTimeSeconds")]
     pub creation_time_seconds: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ProblemsetResponse {
-    status: String,
-    result: ProblemsetResult,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ProblemsetResult {
-    problems: Vec<Problem>,
+/// Minimal problem shape used only within user.status responses.
+#[derive(Debug, Deserialize)]
+pub struct SubmissionProblem {
+    #[serde(rename = "contestId")]
+    pub contest_id: Option<i32>,
+    pub index: String,
 }
 
 impl Default for CFClient {
@@ -82,36 +184,35 @@ impl Default for CFClient {
 impl CFClient {
     pub fn new() -> Self {
         Self {
-            // 15 second timeout to prevent hanging if CF is slow/down
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
+                .timeout(Duration::from_secs(15))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            cache: Arc::new(Mutex::new(HashMap::new())),
-            user_cache: Arc::new(Mutex::new(HashMap::new())),
-            rating_cache: Arc::new(Mutex::new(HashMap::new())),
+            contest_cache: Arc::new(Mutex::new(HashMap::new())),
             solved_cache: Arc::new(Mutex::new(HashMap::new())),
+            problem_db: Arc::new(ProblemDb::new()),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Contest problems (used only by /api/contest/:id – not gameplay)
+    // -----------------------------------------------------------------------
 
     pub async fn fetch_contest_problems(
         &self,
         contest_id: i32,
-    ) -> Result<Vec<Problem>, Box<dyn Error + Send + Sync>> {
-        // 1. Check Cache
+    ) -> Result<Vec<ContestProblem>, Box<dyn Error + Send + Sync>> {
+        // 1. Check Cache (5 min TTL)
         {
-            let cache = self.cache.lock().await;
+            let cache = self.contest_cache.lock().await;
             if let Some((timestamp, problems)) = cache.get(&contest_id) {
                 if timestamp.elapsed() < Duration::from_secs(300) {
-                    // 5 min cache
                     return Ok(problems.clone());
                 }
             }
         }
 
-        // 2. Fetch from API
-        // Use contest.standings with count=1 to just get the problem list (and 1 row of standings, negligible)
-        // usage: https://codeforces.com/api/contest.standings?contestId=566&from=1&count=1
+        // 2. Fetch from CF API – contest.standings with count=1 to get just the problem list
         let url = format!(
             "https://codeforces.com/api/contest.standings?contestId={}&from=1&count=1",
             contest_id
@@ -132,12 +233,16 @@ impl CFClient {
 
         // 3. Update Cache
         {
-            let mut cache = self.cache.lock().await;
+            let mut cache = self.contest_cache.lock().await;
             cache.insert(contest_id, (Instant::now(), problems.clone()));
         }
 
         Ok(problems)
     }
+
+    // -----------------------------------------------------------------------
+    // Submission verification  (live CF API – irreplaceable)
+    // -----------------------------------------------------------------------
 
     pub async fn verify_submission(
         &self,
@@ -147,8 +252,6 @@ impl CFClient {
         locked_since_unix: Option<u64>,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // Fetch last 50 submissions — CF API returns newest first.
-        // With active_problem commitment, the player's solve is always recent
-        // so 50 is more than sufficient for verification.
         let encoded_handle = urlencoding::encode(handle);
         let url = format!(
             "https://codeforces.com/api/user.status?handle={}&from=1&count=50",
@@ -172,17 +275,13 @@ impl CFClient {
                     && submission.problem.contest_id == Some(contest_id)
                     && submission.problem.index == index
                 {
-                    // SECURITY: Verify submission was created AFTER the player got locked.
-                    // This prevents pre-solving exploits where a player submits a solution
-                    // before the game starts and then commits that problem when locked.
+                    // SECURITY: reject pre-solved problems (30 s clock-skew tolerance)
                     if let Some(lock_time) = locked_since_unix {
                         if let Some(creation_time) = submission.creation_time_seconds {
-                            // Allow 30 seconds of clock skew tolerance
                             if (creation_time as u64) + 30 < lock_time {
-                                continue; // Submission is too old, skip it
+                                continue;
                             }
                         }
-                        // If creation_time is missing, accept it (defensive)
                     }
                     return Ok(true);
                 }
@@ -192,107 +291,10 @@ impl CFClient {
         Ok(false)
     }
 
-    /// Verify if a Codeforces user handle exists
-    pub async fn verify_user_exists(
-        &self,
-        handle: &str,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // 1. Check Cache
-        {
-            let cache = self.user_cache.lock().await;
-            if let Some((timestamp, exists)) = cache.get(handle) {
-                if timestamp.elapsed() < Duration::from_secs(600) {
-                    // 10 min cache
-                    return Ok(*exists);
-                }
-            }
-        }
+    // -----------------------------------------------------------------------
+    // Player solved-set  (live CF API with 10-min per-handle cache)
+    // -----------------------------------------------------------------------
 
-        let encoded_handle = urlencoding::encode(handle);
-        let url = format!("https://codeforces.com/api/user.info?handles={}", encoded_handle);
-
-        let resp = self.client.get(&url).send().await?;
-        let mut exists = false;
-
-        // Check if we got a valid response
-        if resp.status().is_success() {
-            let body: serde_json::Value = resp.json().await?;
-            // If status is "OK", user exists
-            if body.get("status").and_then(|v| v.as_str()) == Some("OK") {
-                exists = true;
-            }
-        }
-
-        // 2. Update Cache
-        {
-            let mut cache = self.user_cache.lock().await;
-            cache.insert(handle.to_string(), (Instant::now(), exists));
-        }
-
-        Ok(exists)
-    }
-
-    /// Fetch all problems from Codeforces and cache by rating.
-    /// Returns problems at the requested difficulty rating.
-    pub async fn fetch_problems_by_rating(
-        &self,
-        difficulty: u32,
-    ) -> Result<Vec<Problem>, Box<dyn Error + Send + Sync>> {
-        // 1. Check cache (30 min TTL)
-        {
-            let cache = self.rating_cache.lock().await;
-            if let Some((timestamp, problems)) = cache.get(&difficulty) {
-                if timestamp.elapsed() < Duration::from_secs(1800) {
-                    return Ok(problems.clone());
-                }
-            }
-        }
-
-        // 2. Fetch entire problemset from CF API
-        let url = "https://codeforces.com/api/problemset.problems";
-        let resp = self
-            .client
-            .get(url)
-            .send()
-            .await?
-            .json::<ProblemsetResponse>()
-            .await?;
-
-        if resp.status != "OK" {
-            return Err("Failed to fetch problemset".into());
-        }
-
-        // 3. Group by rating and cache all ratings at once
-        let mut by_rating: HashMap<u32, Vec<Problem>> = HashMap::new();
-        for p in resp.result.problems {
-            if let Some(rating) = p.rating {
-                let entry = by_rating.entry(rating as u32).or_default();
-                if entry.len() < 1000 {
-                    // Cap at 1000 per rating to limit memory
-                    entry.push(p);
-                }
-            }
-        }
-
-        let now = Instant::now();
-        let result = by_rating.get(&difficulty).cloned().unwrap_or_default();
-
-        {
-            let mut cache = self.rating_cache.lock().await;
-            for (rating, problems) in by_rating {
-                cache.insert(rating, (now, problems));
-            }
-        }
-
-        if result.is_empty() {
-            return Err(format!("No problems found at rating {}", difficulty).into());
-        }
-
-        Ok(result)
-    }
-
-    /// Fetch a player's solved problem set from Codeforces.
-    /// Cached for 10 minutes per handle.
     pub async fn fetch_player_solved(
         &self,
         handle: &str,
@@ -307,7 +309,7 @@ impl CFClient {
             }
         }
 
-        // 2. Fetch user submissions (up to 5000 most recent)
+        // 2. Fetch last 5 000 submissions from CF
         let encoded_handle = urlencoding::encode(handle);
         let url = format!(
             "https://codeforces.com/api/user.status?handle={}&from=1&count=5000",
@@ -343,43 +345,55 @@ impl CFClient {
         Ok(solved)
     }
 
-    /// Server-side problem selection: pick a random unsolved problem at the given difficulty.
-    /// This is the authoritative source — the client never picks problems.
+    // -----------------------------------------------------------------------
+    // Problem selection  (in-memory – zero CF API calls for the pool lookup)
+    // -----------------------------------------------------------------------
+
+    /// Pick a random unsolved problem for the given difficulty + mode.
+    ///
+    /// - `difficulty`: CF rating (Cf mode) OR band id 0–4 (Band mode)
+    /// - `mode`:       which difficulty system to use
+    /// - `handle`:     used to fetch the player's solved set (CF API, cached 10 min)
     pub async fn pick_problem(
         &self,
         difficulty: u32,
+        mode: DifficultyMode,
         handle: &str,
-    ) -> Result<Problem, Box<dyn Error + Send + Sync>> {
-        let problems = self.fetch_problems_by_rating(difficulty).await?;
+    ) -> Result<StaticProblem, Box<dyn Error + Send + Sync>> {
+        // 1. Get the in-memory pool — instant, zero I/O
+        let pool = self.problem_db.pool(difficulty, &mode);
 
-        // Try to filter out already-solved problems
+        if pool.is_empty() {
+            return Err(format!(
+                "No problems in database for difficulty={} mode={:?}",
+                difficulty, mode
+            )
+            .into());
+        }
+
+        // 2. Fetch solved set (CF API, cached 10 min per handle)
         let solved = self.fetch_player_solved(handle).await.unwrap_or_default();
 
-        let unsolved: Vec<&Problem> = problems
+        // 3. Filter out already-solved problems
+        let unsolved: Vec<&StaticProblem> = pool
             .iter()
-            .filter(|p| {
-                if let Some(cid) = p.contest_id {
-                    !solved.contains(&format!("{}-{}", cid, p.index))
-                } else {
-                    true
-                }
-            })
+            .copied()
+            .filter(|p| !solved.contains(&format!("{}-{}", p.contest_id, p.index)))
             .collect();
 
-        let pool = if unsolved.is_empty() {
+        let candidates = if unsolved.is_empty() {
             tracing::warn!(
-                "Player {} has solved all {} problems at rating {}",
-                handle,
-                problems.len(),
-                difficulty
+                "Player {} has solved all {} problems at difficulty={} mode={:?} — reusing full pool",
+                handle, pool.len(), difficulty, mode
             );
-            problems.iter().collect::<Vec<_>>()
+            pool
         } else {
             unsolved
         };
 
         let mut rng = rand::thread_rng();
-        pool.choose(&mut rng)
+        candidates
+            .choose(&mut rng)
             .map(|p| (*p).clone())
             .ok_or_else(|| "No problems available".into())
     }

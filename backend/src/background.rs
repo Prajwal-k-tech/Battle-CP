@@ -1,5 +1,5 @@
-use crate::protocol::ServerMessage;
-use crate::state::{AppState, GameEvent, GameStatus, TiebreakResult};
+use crate::protocol::ServerMessage; //for server messages
+use crate::state::{AppState, GameEvent, GameStatus, TiebreakResult}; //our app state 
 use tokio::time::{sleep, Duration};
 //main game loop / server handling multiple game states at a timeR
 pub async fn start_global_ticker(state: AppState) {
@@ -11,9 +11,8 @@ pub async fn start_global_ticker(state: AppState) {
             // Periodic State Sync (Every 1 second for perfect timer sync)
             let _ = game.tx.send(GameEvent::Tick);
 
-            // Bug 4: Lobby timeout — if P2 doesn't join within 5 minutes
             if game.status == GameStatus::Waiting {
-                if game.created_at.elapsed() >= std::time::Duration::from_secs(300) {
+                if game.created_at.elapsed() >= std::time::Duration::from_secs(300) { //if you waited for more than 5 minutes
                     game.status = GameStatus::Finished;
                     game.finished_at = Some(std::time::Instant::now());
                     let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
@@ -246,6 +245,7 @@ pub async fn start_global_ticker(state: AppState) {
         let waiting_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if waiting
         let placing_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if placing ships
 
+        let removed = games.len();
         games.retain(|_id, game| {
             if let Some(finished) = game.finished_at {
                 // If finished, keep only if within threshold
@@ -263,5 +263,31 @@ pub async fn start_global_ticker(state: AppState) {
                 true
             }
         });
+        let removed = removed - games.len();
+        if removed > 0 {
+            tracing::info!("Cleaned up {} finished/abandoned games ({} remaining)", removed, games.len());
+        }
+        // Drop write lock before rate limiter cleanup
+        drop(games);
+
+        // RATE LIMITER CLEANUP: Purge expired entries every 60 seconds
+        // to prevent unbounded memory growth during tournament
+        static LAST_LIMITER_CLEANUP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let last = LAST_LIMITER_CLEANUP.load(std::sync::atomic::Ordering::Relaxed);
+        if now_secs - last >= 60 {
+            LAST_LIMITER_CLEANUP.store(now_secs, std::sync::atomic::Ordering::Relaxed);
+            let mut limiter = state.rate_limiter.lock().await;
+            let before = limiter.len();
+            let window = std::time::Duration::from_secs(300);
+            limiter.retain(|_, (created, _)| created.elapsed() < window);
+            let purged = before - limiter.len();
+            if purged > 0 {
+                tracing::debug!("Purged {} expired rate limiter entries", purged);
+            }
+        }
     }
 }

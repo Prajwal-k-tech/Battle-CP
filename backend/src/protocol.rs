@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::state::DifficultyMode;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -32,6 +33,7 @@ pub enum ServerMessage {
         game_id: Uuid,
         player_id: Uuid,
         difficulty: u32,
+        difficulty_mode: DifficultyMode,
         max_heat: u32,
         max_vetoes: u32,
     },

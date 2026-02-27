@@ -2,7 +2,14 @@
 
 import { MemoizedFaultyTerminal } from "@/components/ui/FaultyTerminal";
 import { Button } from "@/components/ui/button";
-import { Terminal, Users, ArrowRight } from "lucide-react";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog";
+import { Terminal, Users, ArrowRight, ScrollText } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useSound } from "@/context/SoundContext";
@@ -13,7 +20,7 @@ import { useEffect, useState } from "react";
 const GRID_MUL: [number, number] = [2, 1];
 
 export default function Home() {
-  const { playJoin, playSuccess } = useSound();
+  const { playJoin, playSuccess, playShipPlace } = useSound();
   const { setPhase } = useMusic();
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
 
@@ -122,6 +129,105 @@ export default function Home() {
                 JOIN
               </Button>
             </Link>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="h-16 px-8 text-base bg-black/50 border-white/20 hover:bg-white/10 gap-3 backdrop-blur-sm tracking-wider"
+                  style={{ fontFamily: '"Press Start 2P", system-ui' }}
+                  onClick={() => playShipPlace()}
+                >
+                  <ScrollText className="w-5 h-5" />
+                  RULES
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="border-primary/30 bg-black/95 text-white max-w-2xl max-h-[85vh] overflow-y-auto backdrop-blur-xl">
+                <DialogHeader>
+                  <DialogTitle
+                    className="text-primary text-xl tracking-widest"
+                    style={{ fontFamily: '"Press Start 2P", system-ui' }}
+                  >
+                    RULES OF ENGAGEMENT
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-5 text-sm font-mono text-zinc-300 leading-relaxed pr-1">
+
+                  <RulesSection title="1. OBJECTIVE">
+                    Destroy the enemy fleet before time runs out. If time expires, the player with the most ships remaining wins.
+                  </RulesSection>
+
+                  <RulesSection title="2. DEPLOYMENT PHASE">
+                    <ul className="space-y-1 list-disc list-inside text-zinc-400">
+                      <li>Place your <span className="text-white">5 ships</span> on the 10×10 grid.</li>
+                      <li>Ships cannot overlap. Touching (adjacent) is allowed.</li>
+                      <li>Both players must confirm placement to begin combat.</li>
+                    </ul>
+                  </RulesSection>
+
+                  <RulesSection title="3. COMBAT &amp; HEAT">
+                    <ul className="space-y-1 list-disc list-inside text-zinc-400">
+                      <li>Click a cell on the enemy grid to fire.</li>
+                      <li>Every shot generates <span className="text-orange-400">Heat</span>.</li>
+                      <li>Reach <span className="text-red-400">7 Heat</span> → weapons <span className="text-red-400">OVERHEAT</span>. You cannot fire while locked.</li>
+                    </ul>
+                    <div className="mt-2 p-2 border border-white/10 rounded bg-white/5 text-zinc-400">
+                      <span className="text-emerald-400">Active cool-down:</span> Solve a Codeforces problem to instantly reset all heat.
+                    </div>
+                  </RulesSection>
+
+                  <RulesSection title="4. VETO MECHANIC">
+                    <ul className="space-y-1 list-disc list-inside text-zinc-400">
+                      <li>You have <span className="text-white">3 Vetoes</span> total.</li>
+                      <li>Use a Veto to skip the assigned problem at the cost of a timed penalty.</li>
+                      <li>Penalty durations: <span className="text-yellow-400">7 min → 10 min → 15 min</span> (escalating).</li>
+                      <li>Your opponent can still fire at you during your penalty.</li>
+                      <li>Weapons unlock automatically once the penalty timer expires.</li>
+                    </ul>
+                  </RulesSection>
+
+                  <RulesSection title="5. TIE-BREAKERS">
+                    If the game timer ends:
+                    <ol className="space-y-1 list-decimal list-inside text-zinc-400 mt-1">
+                      <li><span className="text-white">Primary:</span> Most ships remaining wins.</li>
+                      <li><span className="text-white">Secondary:</span> Most cells hit on enemy grid wins.</li>
+                      <li><span className="text-white">Final:</span> Sudden Death.</li>
+                    </ol>
+                  </RulesSection>
+
+                  <RulesSection title="6. SUDDEN DEATH">
+                    <ul className="space-y-1 list-disc list-inside text-zinc-400">
+                      <li>Entered only when ships <em>and</em> cells-hit are exactly equal at time-up.</li>
+                      <li>No state is reset — all locks, heat, and veto timers persist.</li>
+                      <li>First player to land a confirmed <span className="text-emerald-400">HIT</span> wins.</li>
+                      <li>A Miss does NOT win. Only a Hit ends Sudden Death.</li>
+                    </ul>
+                  </RulesSection>
+
+                  <RulesSection title="7. DIFFICULTY MODES">
+                    <div className="space-y-2 text-zinc-400">
+                      <p><span className="text-blue-400">CF Mode:</span> Problems are assigned at an exact Codeforces rating (800 – 3500). Choose your precise target difficulty.</p>
+                      <p><span className="text-purple-400">Band Mode:</span> Problems are drawn from a rating range. Pick a named tier instead of an exact number:</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-1 text-xs">
+                        {[
+                          ["Super Easy", "800 – 1200", "text-emerald-400"],
+                          ["Easy",       "1200 – 1500", "text-green-400"],
+                          ["Medium",     "1500 – 1900", "text-yellow-400"],
+                          ["Hard",       "1900 – 2400", "text-orange-400"],
+                          ["Very Hard",  "2400+",       "text-red-400"],
+                        ].map(([name, range, color]) => (
+                          <div key={name} className="flex justify-between px-2 py-1 bg-white/5 rounded border border-white/5">
+                            <span className={color}>{name}</span>
+                            <span className="text-zinc-500">{range}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </RulesSection>
+
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </motion.div>
       </main>
@@ -137,3 +243,16 @@ export default function Home() {
   );
 }
 
+function RulesSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <h3
+        className="text-primary text-[10px] tracking-widest border-b border-primary/20 pb-1"
+        style={{ fontFamily: '"Press Start 2P", system-ui' }}
+      >
+        {title}
+      </h3>
+      <div className="text-zinc-300 text-xs leading-relaxed">{children}</div>
+    </div>
+  );
+}

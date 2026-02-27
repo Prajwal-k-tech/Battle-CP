@@ -39,6 +39,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         gameId: msg.game_id,
                         playerId: msg.player_id,
                         difficulty: msg.difficulty,
+                        difficulty_mode: msg.difficulty_mode,
                         maxHeat: msg.max_heat,
                         maxVetoes: msg.max_vetoes,
                         vetoesRemaining: msg.max_vetoes, // Initialize from server config
