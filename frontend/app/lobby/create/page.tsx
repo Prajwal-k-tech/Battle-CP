@@ -26,11 +26,11 @@ const GRID_MUL: [number, number] = [2, 1];
 import { useSound } from "@/context/SoundContext";
 
 const BANDS = [
-    { id: 0, label: "Super Easy", range: "800–1200", color: "text-emerald-400" },
-    { id: 1, label: "Easy",       range: "1200–1500", color: "text-green-400"   },
-    { id: 2, label: "Medium",     range: "1500–1900", color: "text-yellow-400"  },
-    { id: 3, label: "Hard",       range: "1900–2400", color: "text-orange-400"  },
-    { id: 4, label: "Very Hard",  range: "2400+",     color: "text-red-400"     },
+    { id: 0, label: "Super Easy", range: "clist 0–300",     color: "text-emerald-400" },
+    { id: 1, label: "Easy",       range: "clist 301–600",   color: "text-green-400"   },
+    { id: 2, label: "Medium",     range: "clist 601–1000",  color: "text-yellow-400"  },
+    { id: 3, label: "Hard",       range: "clist 1001–1500", color: "text-orange-400"  },
+    { id: 4, label: "Very Hard",  range: "clist 1501+",     color: "text-red-400"     },
 ] as const;
 
 export default function CreateGamePage() {
@@ -216,7 +216,7 @@ export default function CreateGamePage() {
                                                         <p className="text-[10px] text-zinc-500 font-mono">
                                                             {difficultyMode === "cf"
                                                                 ? "Pick an exact CF rating. Problems are assigned at that level."
-                                                                : "Pick a difficulty tier. Problems span a rating range — great for casual play."}
+                                                                : "Pick a difficulty tier. Problems span a clist.by rating range — great for casual play."}
                                                         </p>
                                                     </div>
 

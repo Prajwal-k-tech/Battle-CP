@@ -207,14 +207,14 @@ export default function Home() {
                   <RulesSection title="7. DIFFICULTY MODES">
                     <div className="space-y-2 text-zinc-400">
                       <p><span className="text-blue-400">CF Mode:</span> Problems are assigned at an exact Codeforces rating (800 – 3500). Choose your precise target difficulty.</p>
-                      <p><span className="text-purple-400">Band Mode:</span> Problems are drawn from a rating range. Pick a named tier instead of an exact number:</p>
+                      <p><span className="text-purple-400">Band Mode:</span> Problems are drawn from a clist.by rating range. Pick a named tier instead of an exact number:</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-1 text-xs">
                         {[
-                          ["Super Easy", "800 – 1200", "text-emerald-400"],
-                          ["Easy",       "1200 – 1500", "text-green-400"],
-                          ["Medium",     "1500 – 1900", "text-yellow-400"],
-                          ["Hard",       "1900 – 2400", "text-orange-400"],
-                          ["Very Hard",  "2400+",       "text-red-400"],
+                          ["Super Easy", "clist 0–300",     "text-emerald-400"],
+                          ["Easy",       "clist 301–600",   "text-green-400"],
+                          ["Medium",     "clist 601–1000",  "text-yellow-400"],
+                          ["Hard",       "clist 1001–1500", "text-orange-400"],
+                          ["Very Hard",  "clist 1501+",     "text-red-400"],
                         ].map(([name, range, color]) => (
                           <div key={name} className="flex justify-between px-2 py-1 bg-white/5 rounded border border-white/5">
                             <span className={color}>{name}</span>

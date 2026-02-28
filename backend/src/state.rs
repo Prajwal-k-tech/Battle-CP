@@ -42,7 +42,7 @@ pub enum DifficultyMode {
     #[default]
     Cf,
     /// Band mode: `difficulty` is a band id (0 = SuperEasy … 4 = VeryHard).
-    /// Bands map to CF rating ranges and give a more casual / beginner-friendly experience.
+    /// Bands map to clist.by rating ranges (0–300, 301–600, 601–1000, 1001–1500, 1501+).
     Band,
 }
 
