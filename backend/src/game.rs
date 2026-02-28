@@ -80,6 +80,7 @@ impl Player {
             last_verification_attempt: None,
             active_problem: None,
             locked_at_unix: None,
+            solved_set: std::collections::HashSet::new(),
         }
     }
 
@@ -90,7 +91,7 @@ impl Player {
         y: usize,
         heat_threshold: u32,
         veto_penalties: &[u64; 3],
-    ) -> Result<(String, bool), &'static str> {
+    ) -> Result<(String, bool, Option<Vec<[usize; 2]>>), &'static str> {
         if self.is_locked {
             // Check veto timer
             if let Some(start) = self.veto_started_at {
@@ -112,6 +113,7 @@ impl Player {
 
         // Process shot on grid
         let mut sunk_this_shot = false;
+        let mut sunk_cells: Option<Vec<[usize; 2]>> = None;
         let result = opponent.grid.receive_shot(x, y);
 
         // Handle invalid shots - return error instead of treating as valid
@@ -142,6 +144,17 @@ impl Player {
                         ship.sunk = true;
                         self.stats.ships_sunk += 1; // Shooter gets credit
                         sunk_this_shot = true;
+                        // Collect the coordinates of every cell in the sunk ship
+                        let cells: Vec<[usize; 2]> = (0..ship.size as usize)
+                            .map(|i| {
+                                if ship.vertical {
+                                    [ship.x, ship.y + i]
+                                } else {
+                                    [ship.x + i, ship.y]
+                                }
+                            })
+                            .collect();
+                        sunk_cells = Some(cells);
                     }
                     break;
                 }
@@ -167,7 +180,7 @@ impl Player {
             );
         }
 
-        Ok((result, sunk_this_shot))
+        Ok((result, sunk_this_shot, sunk_cells))
     }
 
     pub fn place_ship(
@@ -221,6 +234,75 @@ impl Player {
         self.veto_started_at = None; // Clear veto timer — prevents spurious WeaponsUnlocked from ticker
         self.last_verification_attempt = None; // Allow immediate verify in next lock session
         self.locked_at_unix = None; // Clear lock timestamp
+    }
+}
+
+/// Serialize a grid to a 2D Vec of cell-state strings for the protocol.
+fn grid_to_strings(grid: &Grid) -> Vec<Vec<String>> {
+    grid.cells
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| match cell {
+                    CellState::Empty => "empty".to_string(),
+                    CellState::Ship  => "ship".to_string(),
+                    CellState::Hit   => "hit".to_string(),
+                    CellState::Miss  => "miss".to_string(),
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Convert a Vec<Ship> to Vec<RevealedShip> for the post-game board reveal.
+fn ships_to_revealed(ships: &[Ship]) -> Vec<crate::protocol::RevealedShip> {
+    ships
+        .iter()
+        .map(|s| crate::protocol::RevealedShip {
+            x: s.x,
+            y: s.y,
+            size: s.size,
+            vertical: s.vertical,
+            sunk: s.sunk,
+        })
+        .collect()
+}
+
+/// Build a GameOver message with full board-reveal data.
+/// Used from ws.rs and background.rs to avoid duplication.
+pub fn build_game_over(
+    game: &Game,
+    winner_id: Option<Uuid>,
+    reason: String,
+) -> crate::protocol::ServerMessage {
+    let (p2_sunk, p2_hit, p2_solved, p2_grid, p2_ships) = game
+        .player2
+        .as_ref()
+        .map(|p| {
+            (
+                p.stats.ships_sunk,
+                p.stats.cells_hit,
+                p.stats.problems_solved,
+                grid_to_strings(&p.grid),
+                ships_to_revealed(&p.ships),
+            )
+        })
+        .unwrap_or_else(|| (0, 0, 0, vec![vec!["empty".to_string(); 10]; 10], vec![]));
+
+    crate::protocol::ServerMessage::GameOver {
+        winner_id,
+        reason,
+        p1_id: game.player1.id,
+        p1_ships_sunk: game.player1.stats.ships_sunk,
+        p1_cells_hit: game.player1.stats.cells_hit,
+        p1_problems_solved: game.player1.stats.problems_solved,
+        p2_ships_sunk: p2_sunk,
+        p2_cells_hit: p2_hit,
+        p2_problems_solved: p2_solved,
+        p1_grid: grid_to_strings(&game.player1.grid),
+        p1_ships: ships_to_revealed(&game.player1.ships),
+        p2_grid,
+        p2_ships,
     }
 }
 

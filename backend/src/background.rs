@@ -1,4 +1,4 @@
-use crate::protocol::ServerMessage; //for server messages
+use crate::protocol::ServerMessage;
 use crate::state::{AppState, GameEvent, GameStatus, TiebreakResult}; //our app state 
 use tokio::time::{sleep, Duration};
 //main game loop / server handling multiple game states at a timeR
@@ -15,29 +15,9 @@ pub async fn start_global_ticker(state: AppState) {
                 if game.created_at.elapsed() >= std::time::Duration::from_secs(300) { //if you waited for more than 5 minutes
                     game.status = GameStatus::Finished;
                     game.finished_at = Some(std::time::Instant::now());
-                    let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
-                        winner_id: None,
-                        reason: "LobbyTimeout".to_string(),
-                        p1_id: game.player1.id,
-                        p1_ships_sunk: game.player1.stats.ships_sunk,
-                        p1_cells_hit: game.player1.stats.cells_hit,
-                        p1_problems_solved: game.player1.stats.problems_solved,
-                        p2_ships_sunk: game
-                            .player2
-                            .as_ref()
-                            .map(|p| p.stats.ships_sunk)
-                            .unwrap_or(0),
-                        p2_cells_hit: game
-                            .player2
-                            .as_ref()
-                            .map(|p| p.stats.cells_hit)
-                            .unwrap_or(0),
-                        p2_problems_solved: game
-                            .player2
-                            .as_ref()
-                            .map(|p| p.stats.problems_solved)
-                            .unwrap_or(0),
-                    }));
+                    let _ = game.tx.send(GameEvent::Message(
+                        crate::game::build_game_over(game, None, "LobbyTimeout".to_string()),
+                    ));
                     tracing::info!("Game {:?} lobby timed out (5 min)", game.id);
                 }
             }
@@ -50,29 +30,9 @@ pub async fn start_global_ticker(state: AppState) {
                     if placement_start.elapsed() >= std::time::Duration::from_secs(600) {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
-                            winner_id: None,
-                            reason: "PlacementTimeout".to_string(),
-                            p1_id: game.player1.id,
-                            p1_ships_sunk: game.player1.stats.ships_sunk,
-                            p1_cells_hit: game.player1.stats.cells_hit,
-                            p1_problems_solved: game.player1.stats.problems_solved,
-                            p2_ships_sunk: game
-                                .player2
-                                .as_ref()
-                                .map(|p| p.stats.ships_sunk)
-                                .unwrap_or(0),
-                            p2_cells_hit: game
-                                .player2
-                                .as_ref()
-                                .map(|p| p.stats.cells_hit)
-                                .unwrap_or(0),
-                            p2_problems_solved: game
-                                .player2
-                                .as_ref()
-                                .map(|p| p.stats.problems_solved)
-                                .unwrap_or(0),
-                        }));
+                        let _ = game.tx.send(GameEvent::Message(
+                            crate::game::build_game_over(game, None, "PlacementTimeout".to_string()),
+                        ));
                         tracing::info!("Game {:?} placement timed out (10 min)", game.id);
                     }
                 }
@@ -137,56 +97,18 @@ pub async fn start_global_ticker(state: AppState) {
                             TiebreakResult::Player1Wins => {
                                 game.status = GameStatus::Finished;
                                 game.finished_at = Some(std::time::Instant::now());
-                                let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
-                                    winner_id: Some(game.player1.id),
-                                    reason: "Timeout - More ships remaining".to_string(),
-                                    p1_id: game.player1.id,
-                                    p1_ships_sunk: game.player1.stats.ships_sunk,
-                                    p1_cells_hit: game.player1.stats.cells_hit,
-                                    p1_problems_solved: game.player1.stats.problems_solved,
-                                    p2_ships_sunk: game
-                                        .player2
-                                        .as_ref()
-                                        .map(|p| p.stats.ships_sunk)
-                                        .unwrap_or(0),
-                                    p2_cells_hit: game
-                                        .player2
-                                        .as_ref()
-                                        .map(|p| p.stats.cells_hit)
-                                        .unwrap_or(0),
-                                    p2_problems_solved: game
-                                        .player2
-                                        .as_ref()
-                                        .map(|p| p.stats.problems_solved)
-                                        .unwrap_or(0),
-                                }));
+                                let winner = Some(game.player1.id);
+                                let _ = game.tx.send(GameEvent::Message(
+                                    crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string()),
+                                ));
                             }
                             TiebreakResult::Player2Wins => {
                                 game.status = GameStatus::Finished;
                                 game.finished_at = Some(std::time::Instant::now());
-                                let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
-                                    winner_id: game.player2.as_ref().map(|p| p.id),
-                                    reason: "Timeout - More ships remaining".to_string(),
-                                    p1_id: game.player1.id,
-                                    p1_ships_sunk: game.player1.stats.ships_sunk,
-                                    p1_cells_hit: game.player1.stats.cells_hit,
-                                    p1_problems_solved: game.player1.stats.problems_solved,
-                                    p2_ships_sunk: game
-                                        .player2
-                                        .as_ref()
-                                        .map(|p| p.stats.ships_sunk)
-                                        .unwrap_or(0),
-                                    p2_cells_hit: game
-                                        .player2
-                                        .as_ref()
-                                        .map(|p| p.stats.cells_hit)
-                                        .unwrap_or(0),
-                                    p2_problems_solved: game
-                                        .player2
-                                        .as_ref()
-                                        .map(|p| p.stats.problems_solved)
-                                        .unwrap_or(0),
-                                }));
+                                let winner = game.player2.as_ref().map(|p| p.id);
+                                let _ = game.tx.send(GameEvent::Message(
+                                    crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string()),
+                                ));
                             }
                             TiebreakResult::SuddenDeath => {
                                 // Sudden Death: first player to land a HIT wins.
@@ -208,29 +130,9 @@ pub async fn start_global_ticker(state: AppState) {
                     {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let _ = game.tx.send(GameEvent::Message(ServerMessage::GameOver {
-                            winner_id: None,
-                            reason: "SuddenDeathTimeout".to_string(),
-                            p1_id: game.player1.id,
-                            p1_ships_sunk: game.player1.stats.ships_sunk,
-                            p1_cells_hit: game.player1.stats.cells_hit,
-                            p1_problems_solved: game.player1.stats.problems_solved,
-                            p2_ships_sunk: game
-                                .player2
-                                .as_ref()
-                                .map(|p| p.stats.ships_sunk)
-                                .unwrap_or(0),
-                            p2_cells_hit: game
-                                .player2
-                                .as_ref()
-                                .map(|p| p.stats.cells_hit)
-                                .unwrap_or(0),
-                            p2_problems_solved: game
-                                .player2
-                                .as_ref()
-                                .map(|p| p.stats.problems_solved)
-                                .unwrap_or(0),
-                        }));
+                        let _ = game.tx.send(GameEvent::Message(
+                            crate::game::build_game_over(game, None, "SuddenDeathTimeout".to_string()),
+                        ));
                         tracing::info!("Game {:?} sudden death timed out (10 min)", game.id);
                     }
                 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use, useRef } from "react";
+import React, { useEffect, useState, use, useRef } from "react";
 import { useGameSocket } from "@/hooks/useGameSocket";
 import { useSound } from "@/context/SoundContext";
 import { useMusic } from "@/context/MusicContext";
@@ -136,11 +136,17 @@ function GameContent({
         }
     };
 
-    const isWinner = gameState.winnerId === playerId;
+    // Memoize sunk cell sets for CombatGrid (avoid re-creating on every render)
+    const enemySunkSet = React.useMemo(
+        () => new Set(gameState.enemySunkCells),
+        [gameState.enemySunkCells]
+    );
+    const mySunkSet = React.useMemo(
+        () => new Set(gameState.mySunkCells),
+        [gameState.mySunkCells]
+    );
 
-    // Calculate Stats
-    const shotsHit = gameState.enemyGrid.flat().filter(c => c === "hit").length;
-    const shotsMissed = gameState.enemyGrid.flat().filter(c => c === "miss").length;
+    const isWinner = gameState.winnerId === playerId;
 
     // Track previous grid to detect new shots for sound effects
     const prevEnemyGridRef = useRef<typeof gameState.enemyGrid | null>(null);
@@ -327,6 +333,8 @@ function GameContent({
                             myShips={effectiveMyShips}
                             onFire={handleFire}
                             canFire={!gameState.isLocked}
+                            enemySunkCells={enemySunkSet}
+                            mySunkCells={mySunkSet}
                         />
                     </div>
                 )}
@@ -355,12 +363,20 @@ function GameContent({
                         isOpen={true}
                         isWinner={isWinner}
                         reason={gameState.gameOverReason || "Unknown"}
-                        stats={{
-                            shotsHit,
-                            shotsMissed,
+                        myStats={{
+                            cellsHit: gameState.myCellsHit,
+                            shipsSunk: gameState.enemyShipsSunk,
                             problemsSolved: gameState.problemsSolved,
-                            enemyShipsSunk: gameState.enemyShipsSunk,
                         }}
+                        opponentStats={{
+                            cellsHit: gameState.opponentCellsHit,
+                            shipsSunk: gameState.opponentShipsSunk,
+                            problemsSolved: gameState.opponentProblemsSolved,
+                        }}
+                        myGrid={gameState.revealMyGrid}
+                        myShips={gameState.revealMyShips}
+                        opponentGrid={gameState.revealOpponentGrid}
+                        opponentShips={gameState.revealOpponentShips}
                     />
                 )}
             </main>

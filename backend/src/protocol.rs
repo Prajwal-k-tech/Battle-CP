@@ -70,6 +70,10 @@ pub enum ServerMessage {
         hit: bool,
         sunk: bool,
         shooter_id: Uuid,
+        /// When sunk=true, the (x,y) coordinates of every cell of the sunk ship.
+        /// Frontend uses this to color sunk-ship cells differently from normal hits.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sunk_cells: Option<Vec<[usize; 2]>>,
     },
     WeaponsLocked {
         player_id: Uuid, //whatevers players weapons get lcoked
@@ -100,6 +104,13 @@ pub enum ServerMessage {
         p2_ships_sunk: u32,
         p2_cells_hit: u32,
         p2_problems_solved: u32,
+        // Post-game board reveal: both players' full grids + ship placements.
+        // Each cell is "empty", "ship", "hit", or "miss".
+        // Ships are serialized as {x, y, size, vertical, sunk}.
+        p1_grid: Vec<Vec<String>>,
+        p1_ships: Vec<RevealedShip>,
+        p2_grid: Vec<Vec<String>>,
+        p2_ships: Vec<RevealedShip>,
     },
 
     // Errors
@@ -123,5 +134,15 @@ pub struct ShipPlacement {
     pub y: usize,
     pub size: u8,
     pub vertical: bool,
+}
+
+/// Ship data sent in the post-game board reveal.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RevealedShip {
+    pub x: usize,
+    pub y: usize,
+    pub size: u8,
+    pub vertical: bool,
+    pub sunk: bool,
 }
 //this file describes all the json messages between client and server

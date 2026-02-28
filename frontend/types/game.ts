@@ -9,6 +9,14 @@ export interface ShipPlacement {
     vertical: boolean;
 }
 
+export interface RevealedShip {
+    x: number;
+    y: number;
+    size: number;
+    vertical: boolean;
+    sunk: boolean;
+}
+
 export type GamePhase = "connecting" | "lobby" | "placement" | "combat" | "finished";
 
 export interface GameState {
@@ -26,6 +34,10 @@ export interface GameState {
     // Combat
     myGrid: CellState[][];      // 10x10 - your ships + opponent hits
     enemyGrid: CellState[][];   // 10x10 - your hits/misses on enemy
+
+    // Sunk ship tracking — accumulated "x,y" keys for cells belonging to fully sunk ships
+    enemySunkCells: string[];   // sunk cells on enemy grid (my shots that sunk ships)
+    mySunkCells: string[];      // sunk cells on my grid (opponent shots that sunk my ships)
 
     // HUD State
     heat: number;
@@ -46,6 +58,17 @@ export interface GameState {
     // End State
     winnerId: string | null;
     gameOverReason: string | null;
+
+    // Board reveal (populated on GameOver — already resolved to my/opponent perspective)
+    revealMyGrid: string[][] | null;
+    revealMyShips: RevealedShip[] | null;
+    revealOpponentGrid: string[][] | null;
+    revealOpponentShips: RevealedShip[] | null;
+    // Opponent stats from GameOver
+    opponentShipsSunk: number;
+    opponentProblemsSolved: number;
+    opponentCellsHit: number;
+    myCellsHit: number;
 
     // Error
     lastError: string | null;
@@ -72,6 +95,9 @@ export const initialGameState: GameState = {
     myGrid: Array(10).fill(null).map(() => Array(10).fill("empty")),
     enemyGrid: Array(10).fill(null).map(() => Array(10).fill("empty")),
 
+    enemySunkCells: [],
+    mySunkCells: [],
+
     heat: 0,
     maxHeat: 7, // Default, will be updated from server
     maxVetoes: 3, // Default, will be updated from server
@@ -86,6 +112,16 @@ export const initialGameState: GameState = {
 
     winnerId: null,
     gameOverReason: null,
+
+    revealMyGrid: null,
+    revealMyShips: null,
+    revealOpponentGrid: null,
+    revealOpponentShips: null,
+    opponentShipsSunk: 0,
+    opponentProblemsSolved: 0,
+    opponentCellsHit: 0,
+    myCellsHit: 0,
+
     lastError: null,
     difficulty: 800,
     difficulty_mode: "cf",
@@ -119,7 +155,7 @@ export type ServerMessage =
 
     // Combat
     | { type: "GameUpdate"; status: string; is_active: boolean; heat: number; is_locked: boolean; time_remaining_secs: number; vetoes_remaining: number; veto_time_remaining_secs?: number; active_problem_contest_id?: number; active_problem_index?: string; active_problem_name?: string }
-    | { type: "ShotResult"; x: number; y: number; hit: boolean; sunk: boolean; shooter_id: string }
+    | { type: "ShotResult"; x: number; y: number; hit: boolean; sunk: boolean; shooter_id: string; sunk_cells?: [number, number][] }
     | { type: "WeaponsLocked"; player_id: string }
     | { type: "WeaponsUnlocked"; player_id: string; reason: string } // "solved" or "veto_expired"
 
@@ -139,6 +175,11 @@ export type ServerMessage =
         p2_ships_sunk: number;
         p2_cells_hit: number;
         p2_problems_solved: number;
+        // Board reveal
+        p1_grid: string[][];
+        p1_ships: RevealedShip[];
+        p2_grid: string[][];
+        p2_ships: RevealedShip[];
     }
 
     // Error

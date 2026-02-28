@@ -12,6 +12,8 @@ interface CombatGridProps {
     myShips: { x: number; y: number; size: number; vertical: boolean }[];
     onFire: (x: number, y: number) => void;
     canFire: boolean;
+    enemySunkCells?: Set<string>;
+    mySunkCells?: Set<string>;
 }
 
 const GRID_SIZE = 10;
@@ -20,11 +22,13 @@ const LABELS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
 const Cell = React.memo(function Cell({
     state,
     isEnemy,
+    isSunk,
     onClick,
     canClick,
 }: {
     state: CellState;
     isEnemy: boolean;
+    isSunk: boolean;
     onClick?: () => void;
     canClick: boolean;
 }) {
@@ -44,23 +48,33 @@ const Cell = React.memo(function Cell({
                 canClick && isEmpty && "hover:bg-primary/20 hover:border-primary/50 cursor-crosshair",
                 !canClick && "cursor-default",
                 isShip && !isEnemy && "bg-primary/30 border-primary/40",
-                isHit && "bg-red-500/40 border-red-500/60",
+                isHit && isSunk && "bg-red-600/50 border-red-600/70",
+                isHit && !isSunk && "bg-orange-500/40 border-orange-500/60",
                 isMiss && "bg-zinc-700/30"
             )}
         >
             {/* Empty state dot */}
             {isEmpty && !isEnemy && <div className="w-1 h-1 bg-white/10 rounded-full" />}
 
-            {/* Hit marker */}
-            {isHit && (
+            {/* Hit marker — red X for sunk, orange dot for hit */}
+            {isHit && isSunk && (
                 <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     className="absolute inset-0 flex items-center justify-center"
                 >
-                    <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse" />
+                    <div className="w-4 h-4 bg-red-500 rounded-full" />
                     <div className="absolute w-6 h-0.5 bg-red-500 rotate-45" />
                     <div className="absolute w-6 h-0.5 bg-red-500 -rotate-45" />
+                </motion.div>
+            )}
+            {isHit && !isSunk && (
+                <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute inset-0 flex items-center justify-center"
+                >
+                    <div className="w-4 h-4 bg-orange-500 rounded-full animate-pulse" />
                 </motion.div>
             )}
 
@@ -86,6 +100,7 @@ function GridWithLabels({
     title,
     isEnemy,
     ships,
+    sunkCells,
     onCellClick,
     canFire,
 }: {
@@ -93,6 +108,7 @@ function GridWithLabels({
     title: string;
     isEnemy: boolean;
     ships?: { x: number; y: number; size: number; vertical: boolean }[];
+    sunkCells?: Set<string>;
     onCellClick?: (x: number, y: number) => void;
     canFire: boolean;
 }) {
@@ -160,6 +176,7 @@ function GridWithLabels({
                                         key={`${x}-${y}`}
                                         state={getCellState(x, y)}
                                         isEnemy={isEnemy}
+                                        isSunk={sunkCells?.has(`${x},${y}`) ?? false}
                                         onClick={isEnemy && onCellClick ? () => onCellClick(x, y) : undefined}
                                         canClick={isEnemy && canFire && getCellState(x, y) === "empty"}
                                     />
@@ -175,7 +192,7 @@ function GridWithLabels({
 
 import { useSound } from "@/context/SoundContext";
 
-export function CombatGrid({ myGrid, enemyGrid, myShips, onFire, canFire }: CombatGridProps) {
+export function CombatGrid({ myGrid, enemyGrid, myShips, onFire, canFire, enemySunkCells, mySunkCells }: CombatGridProps) {
     const { playFire } = useSound();
 
     const handleFire = (x: number, y: number) => {
@@ -193,6 +210,7 @@ export function CombatGrid({ myGrid, enemyGrid, myShips, onFire, canFire }: Comb
                 title="Your Fleet"
                 isEnemy={false}
                 ships={myShips}
+                sunkCells={mySunkCells}
                 canFire={false}
             />
 
@@ -208,6 +226,7 @@ export function CombatGrid({ myGrid, enemyGrid, myShips, onFire, canFire }: Comb
                 grid={enemyGrid}
                 title="Enemy Waters"
                 isEnemy={true}
+                sunkCells={enemySunkCells}
                 onCellClick={handleFire}
                 canFire={canFire}
             />

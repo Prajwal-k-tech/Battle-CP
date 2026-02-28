@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock, Mutex};
 use uuid::Uuid;
@@ -150,6 +150,11 @@ pub struct Player {
     /// Wall-clock Unix timestamp (seconds) when weapons were locked.
     #[serde(skip)]
     pub locked_at_unix: Option<u64>,
+    /// Pre-fetched set of problem keys the player has already solved on CF.
+    /// Populated once when the player joins, cleared when the game ends.
+    /// Format: "contestId-index" (e.g., "1234-A").
+    #[serde(skip)]
+    pub solved_set: HashSet<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

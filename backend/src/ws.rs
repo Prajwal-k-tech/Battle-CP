@@ -655,13 +655,69 @@ async fn handle_client_message(
                 game.status = crate::state::GameStatus::Playing;
                 game.game_started_at = Some(std::time::Instant::now());
 
-                // Broadcast GameStart to all players
-                let _ = game
-                    .tx
-                    .send(crate::state::GameEvent::Message(ServerMessage::GameStart));
+                // Fetch both players' solved sets from CF API (one-time at game start).
+                // This removes the per-lock 10-min cached call.
+                let p1_handle = game.player1.cf_handle.clone();
+                let p2_handle = game.player2.as_ref().map(|p| p.cf_handle.clone()).unwrap_or_default();
+                let tx = game.tx.clone();
+
+                // Drop the write lock to do async I/O
+                drop(games);
+
+                let (p1_solved, p2_solved) = tokio::join!(
+                    state.cf_client.fetch_player_solved(&p1_handle),
+                    state.cf_client.fetch_player_solved(&p2_handle),
+                );
+
+                // Re-acquire the lock and store solved sets
+                let mut games = state.games.write().await;
+                if let Some(game) = games.get_mut(&game_id) {
+                    game.player1.solved_set = p1_solved.unwrap_or_default();
+                    if let Some(ref mut p2) = game.player2 {
+                        p2.solved_set = p2_solved.unwrap_or_default();
+                    }
+                    tracing::info!(
+                        "Game {:?}: fetched solved sets (P1: {} problems, P2: {} problems)",
+                        game_id,
+                        game.player1.solved_set.len(),
+                        game.player2.as_ref().map(|p| p.solved_set.len()).unwrap_or(0),
+                    );
+
+                    // Get player for response
+                    let player = if is_player1 {
+                        &game.player1
+                    } else if let Some(ref p) = game.player2 {
+                        p
+                    } else {
+                        return vec![ServerMessage::Error {
+                            message: "Opponent left".to_string(),
+                        }];
+                    };
+
+                    // Broadcast GameStart to all players
+                    let _ = tx.send(crate::state::GameEvent::Message(ServerMessage::GameStart));
+
+                    return vec![ServerMessage::GameUpdate {
+                        status: "Playing".to_string(),
+                        is_active: true,
+                        heat: player.heat,
+                        is_locked: player.is_locked,
+                        time_remaining_secs: game.config.game_duration_secs,
+                        vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
+                        veto_time_remaining_secs: None,
+                        active_problem_contest_id: None,
+                        active_problem_index: None,
+                        active_problem_name: None,
+                    }];
+                }
+
+                // Game vanished while we were fetching — shouldn't happen
+                return vec![ServerMessage::Error {
+                    message: "Game ended during setup".to_string(),
+                }];
             }
 
-            // Get player again for response
+            // Only one player has placed — waiting for the other
             let player = if is_player1 {
                 &game.player1
             } else if let Some(ref p) = game.player2 {
@@ -672,16 +728,9 @@ async fn handle_client_message(
                 }];
             };
 
-            // Return status based on whether game started
-            let status = if both_ready {
-                "Playing".to_string()
-            } else {
-                "Placement Complete".to_string()
-            };
-
             vec![ServerMessage::GameUpdate {
-                status,
-                is_active: both_ready,
+                status: "Placement Complete".to_string(),
+                is_active: false,
                 heat: player.heat,
                 is_locked: player.is_locked,
                 time_remaining_secs: game.config.game_duration_secs,
@@ -747,7 +796,7 @@ async fn handle_client_message(
             };
 
             match res {
-                Ok((result, sunk_this_shot)) => {
+                Ok((result, sunk_this_shot, sunk_cells)) => {
                     // Check for victory logic
                     let all_sunk = if game.player1.id == pid {
                         game.player2.as_ref().is_some_and(|p2| {
@@ -783,6 +832,7 @@ async fn handle_client_message(
                         hit: result == "Hit",
                         sunk: sunk_this_shot,
                         shooter_id: pid,
+                        sunk_cells,
                     };
 
                     // Broadcast to both players
@@ -806,33 +856,8 @@ async fn handle_client_message(
                     // In SuddenDeath, the SD path below always takes priority
                     // to prevent sending two GameOver messages.
                     if all_sunk && !is_sudden_death {
-                        let (p1_ships_sunk, p1_cells_hit, p1_problems_solved) = {
-                            let s = &game.player1.stats;
-                            (s.ships_sunk, s.cells_hit, s.problems_solved)
-                        };
-                        let (p2_ships_sunk, p2_cells_hit, p2_problems_solved) = game
-                            .player2
-                            .as_ref()
-                            .map(|p| {
-                                (
-                                    p.stats.ships_sunk,
-                                    p.stats.cells_hit,
-                                    p.stats.problems_solved,
-                                )
-                            })
-                            .unwrap_or((0, 0, 0));
                         let _ = game.tx.send(crate::state::GameEvent::Message(
-                            ServerMessage::GameOver {
-                                winner_id: Some(pid),
-                                reason: "AllShipsSunk".to_string(),
-                                p1_id: game.player1.id,
-                                p1_ships_sunk,
-                                p1_cells_hit,
-                                p1_problems_solved,
-                                p2_ships_sunk,
-                                p2_cells_hit,
-                                p2_problems_solved,
-                            },
+                            crate::game::build_game_over(game, Some(pid), "AllShipsSunk".to_string()),
                         ));
                     }
 
@@ -840,33 +865,8 @@ async fn handle_client_message(
                     if is_sudden_death && result == "Hit" {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let (p1_ships_sunk, p1_cells_hit, p1_problems_solved) = {
-                            let s = &game.player1.stats;
-                            (s.ships_sunk, s.cells_hit, s.problems_solved)
-                        };
-                        let (p2_ships_sunk, p2_cells_hit, p2_problems_solved) = game
-                            .player2
-                            .as_ref()
-                            .map(|p| {
-                                (
-                                    p.stats.ships_sunk,
-                                    p.stats.cells_hit,
-                                    p.stats.problems_solved,
-                                )
-                            })
-                            .unwrap_or((0, 0, 0));
                         let _ = game.tx.send(crate::state::GameEvent::Message(
-                            ServerMessage::GameOver {
-                                winner_id: Some(pid),
-                                reason: "SuddenDeath - First hit wins!".to_string(),
-                                p1_id: game.player1.id,
-                                p1_ships_sunk,
-                                p1_cells_hit,
-                                p1_problems_solved,
-                                p2_ships_sunk,
-                                p2_cells_hit,
-                                p2_problems_solved,
-                            },
+                            crate::game::build_game_over(game, Some(pid), "SuddenDeath - First hit wins!".to_string()),
                         ));
                     }
 
@@ -877,15 +877,8 @@ async fn handle_client_message(
                     // If the shooter just got locked and the game isn't over,
                     // pick a problem from CF and assign it.
                     if shooter_locked && game.status != GameStatus::Finished {
-                        // Grab what we need before dropping the write lock
-                        let shooter_handle = if game.player1.id == pid {
-                            game.player1.cf_handle.clone()
-                        } else {
-                            game.player2.as_ref().map(|p| p.cf_handle.clone()).unwrap_or_default()
-                        };
                         let difficulty = game.config.difficulty;
                         let difficulty_mode = game.config.difficulty_mode.clone();
-                        let tx = game.tx.clone();
 
                         // Check if already has a problem (shouldn't happen, but be safe)
                         let already_has = if game.player1.id == pid {
@@ -895,53 +888,52 @@ async fn handle_client_message(
                         };
 
                         if !already_has {
-                            // Drop the write lock so we can do async I/O
-                            drop(games);
+                            // Get the pre-fetched solved set (populated when player joined)
+                            let solved_set = if game.player1.id == pid {
+                                &game.player1.solved_set
+                            } else {
+                                &game.player2.as_ref().unwrap().solved_set
+                            };
 
-                            let assigned = state.cf_client.pick_problem(difficulty, difficulty_mode, &shooter_handle).await;
+                            // pick_problem is now synchronous — no CF API call, uses in-memory DB + pre-fetched solved set
+                            let assigned = state.cf_client.pick_problem(difficulty, difficulty_mode, solved_set);
 
-                            // Re-acquire write lock and store the result
-                            let mut games = state.games.write().await;
-                            if let Some(game) = games.get_mut(&game_id) {
-                                // Guard: game may have ended while the CF API call was in-flight
-                                if game.status == GameStatus::Finished {
-                                    // Discard — no point assigning a problem in a finished game
-                                } else {
-                                    match assigned {
-                                        Ok(problem) => {
-                                            let ap = crate::state::AssignedProblem {
-                                                contest_id: problem.contest_id,
-                                                index: problem.index.clone(),
-                                                name: problem.name.clone(),
-                                                rating: problem.rating,
-                                            };
-                                            // Store on the player
-                                            if game.player1.id == pid {
-                                                game.player1.active_problem = Some(ap.clone());
-                                            } else if let Some(ref mut p2) = game.player2 {
-                                                p2.active_problem = Some(ap.clone());
-                                            }
-                                            // Broadcast ProblemAssigned to both players
-                                            let _ = tx.send(crate::state::GameEvent::Message(
-                                                ServerMessage::ProblemAssigned {
-                                                    player_id: pid,
-                                                    contest_id: ap.contest_id,
-                                                    problem_index: ap.index,
-                                                    problem_name: ap.name,
-                                                    rating: ap.rating,
-                                                },
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            // Log only — don't broadcast error to BOTH players.
-                                            // The locked player sees "Server is assigning a problem..."
-                                            // in the ProblemPanel; they can use Veto to retry.
-                                            tracing::error!(
-                                                "Failed to pick problem for {}: {}",
-                                                shooter_handle, e
-                                            );
-                                        }
+                            match assigned {
+                                Ok(problem) => {
+                                    let ap = crate::state::AssignedProblem {
+                                        contest_id: problem.contest_id,
+                                        index: problem.index.clone(),
+                                        name: problem.name.clone(),
+                                        rating: problem.rating,
+                                    };
+                                    let tx = game.tx.clone();
+                                    // Store on the player
+                                    if game.player1.id == pid {
+                                        game.player1.active_problem = Some(ap.clone());
+                                    } else if let Some(ref mut p2) = game.player2 {
+                                        p2.active_problem = Some(ap.clone());
                                     }
+                                    // Broadcast ProblemAssigned to both players
+                                    let _ = tx.send(crate::state::GameEvent::Message(
+                                        ServerMessage::ProblemAssigned {
+                                            player_id: pid,
+                                            contest_id: ap.contest_id,
+                                            problem_index: ap.index,
+                                            problem_name: ap.name,
+                                            rating: ap.rating,
+                                        },
+                                    ));
+                                }
+                                Err(e) => {
+                                    let shooter_handle = if game.player1.id == pid {
+                                        &game.player1.cf_handle
+                                    } else {
+                                        &game.player2.as_ref().unwrap().cf_handle
+                                    };
+                                    tracing::error!(
+                                        "Failed to pick problem for {}: {}",
+                                        shooter_handle, e
+                                    );
                                 }
                             }
                         }

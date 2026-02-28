@@ -14,22 +14,20 @@ use crate::state::DifficultyMode;
 // ---------------------------------------------------------------------------
 
 /// Type alias for the contest-problem cache (keyed by contest_id)
-type ProblemCache = Arc<Mutex<HashMap<i32, (Instant, Vec<ContestProblem>)>>>;
-/// Type alias for the player-solved-problems cache (keyed by handle)
-type SolvedCache = Arc<Mutex<HashMap<String, (Instant, HashSet<String>)>>>;
+type ProblemCache = Arc<Mutex<HashMap<i32, (std::time::Instant, Vec<ContestProblem>)>>>;
 
 // ---------------------------------------------------------------------------
 // Static problem database – loaded once at startup from embedded JSON
 // ---------------------------------------------------------------------------
 
-/// Difficulty bands.  The `difficulty` field in `Band` mode is one of these ids.
-/// Ranges are CF ratings (inclusive on both ends).
+/// Difficulty bands for Band mode.  `difficulty` field is one of these ids.
+/// Ranges are **clist.by** ratings (inclusive on both ends), NOT CF ratings.
 pub const BANDS: &[(u8, &str, u32, u32)] = &[
-    (0, "Super Easy", 800,  1200),
-    (1, "Easy",       1201, 1500),
-    (2, "Medium",     1501, 1900),
-    (3, "Hard",       1901, 2400),
-    (4, "Very Hard",  2401, 9999),
+    (0, "Super Easy", 0,    300),
+    (1, "Easy",       301,  600),
+    (2, "Medium",     601,  1000),
+    (3, "Hard",       1001, 1500),
+    (4, "Very Hard",  1501, 9999),
 ];
 
 /// A pre-scraped Codeforces problem from `backend/data/problems.json`.
@@ -54,9 +52,12 @@ pub struct StaticProblem {
     /// division tag: Div1/Div2/Div3/Div4/Educational/Global/Other
     #[serde(rename = "d")]
     pub division: String,
-    /// band id 0-4 (-1 if unclassified)
+    /// band id 0-4 based on clist rating (-1 if unclassified)
     #[serde(rename = "b")]
     pub band: i8,
+    /// clist.by rating (-1 if unavailable)
+    #[serde(rename = "l")]
+    pub clist_rating: i32,
 }
 
 /// In-memory problem database built from the embedded JSON at startup.
@@ -124,8 +125,6 @@ pub struct CFClient {
     client: Client,
     /// Cache for contest.standings results (used only by /api/contest/:id endpoint)
     contest_cache: ProblemCache,
-    /// Cache for user.status solved-set lookups
-    solved_cache: SolvedCache,
     /// Static problem database (shared across all clones via Arc)
     problem_db: Arc<ProblemDb>,
 }
@@ -189,7 +188,6 @@ impl CFClient {
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             contest_cache: Arc::new(Mutex::new(HashMap::new())),
-            solved_cache: Arc::new(Mutex::new(HashMap::new())),
             problem_db: Arc::new(ProblemDb::new()),
         }
     }
@@ -292,24 +290,13 @@ impl CFClient {
     }
 
     // -----------------------------------------------------------------------
-    // Player solved-set  (live CF API with 10-min per-handle cache)
+    // Player solved-set  (live CF API – called once per game start)
     // -----------------------------------------------------------------------
 
     pub async fn fetch_player_solved(
         &self,
         handle: &str,
     ) -> Result<HashSet<String>, Box<dyn Error + Send + Sync>> {
-        // 1. Check cache (10 min TTL)
-        {
-            let cache = self.solved_cache.lock().await;
-            if let Some((timestamp, solved)) = cache.get(handle) {
-                if timestamp.elapsed() < Duration::from_secs(600) {
-                    return Ok(solved.clone());
-                }
-            }
-        }
-
-        // 2. Fetch last 5 000 submissions from CF
         let encoded_handle = urlencoding::encode(handle);
         let url = format!(
             "https://codeforces.com/api/user.status?handle={}&from=1&count=5000",
@@ -336,12 +323,6 @@ impl CFClient {
             }
         }
 
-        // 3. Update cache
-        {
-            let mut cache = self.solved_cache.lock().await;
-            cache.insert(handle.to_string(), (Instant::now(), solved.clone()));
-        }
-
         Ok(solved)
     }
 
@@ -353,12 +334,12 @@ impl CFClient {
     ///
     /// - `difficulty`: CF rating (Cf mode) OR band id 0–4 (Band mode)
     /// - `mode`:       which difficulty system to use
-    /// - `handle`:     used to fetch the player's solved set (CF API, cached 10 min)
-    pub async fn pick_problem(
+    /// - `solved_set`: pre-fetched set of solved problem keys ("contestId-index")
+    pub fn pick_problem(
         &self,
         difficulty: u32,
         mode: DifficultyMode,
-        handle: &str,
+        solved_set: &HashSet<String>,
     ) -> Result<StaticProblem, Box<dyn Error + Send + Sync>> {
         // 1. Get the in-memory pool — instant, zero I/O
         let pool = self.problem_db.pool(difficulty, &mode);
@@ -371,20 +352,17 @@ impl CFClient {
             .into());
         }
 
-        // 2. Fetch solved set (CF API, cached 10 min per handle)
-        let solved = self.fetch_player_solved(handle).await.unwrap_or_default();
-
-        // 3. Filter out already-solved problems
+        // 2. Filter out already-solved problems using pre-fetched set
         let unsolved: Vec<&StaticProblem> = pool
             .iter()
             .copied()
-            .filter(|p| !solved.contains(&format!("{}-{}", p.contest_id, p.index)))
+            .filter(|p| !solved_set.contains(&format!("{}-{}", p.contest_id, p.index)))
             .collect();
 
         let candidates = if unsolved.is_empty() {
             tracing::warn!(
-                "Player {} has solved all {} problems at difficulty={} mode={:?} — reusing full pool",
-                handle, pool.len(), difficulty, mode
+                "Player has solved all {} problems at difficulty={} mode={:?} — reusing full pool",
+                pool.len(), difficulty, mode
             );
             pool
         } else {

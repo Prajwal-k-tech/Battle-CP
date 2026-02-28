@@ -162,6 +162,11 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         toast.info(isMyShot ? "Enemy ship destroyed!" : "Your ship was sunk!");
                     }
 
+                    // Accumulate sunk cells when a ship is sunk
+                    const newSunkCells = msg.sunk && msg.sunk_cells
+                        ? msg.sunk_cells.map(([cx, cy]) => `${cx},${cy}`)
+                        : [];
+
                     if (isMyShot) {
                         // Update enemy grid with my shot result
                         const newEnemyGrid = prev.enemyGrid.map(row => [...row]);
@@ -171,12 +176,23 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                             enemyGrid: newEnemyGrid,
                             // Track ships sunk by me
                             enemyShipsSunk: msg.sunk ? prev.enemyShipsSunk + 1 : prev.enemyShipsSunk,
+                            // Add sunk cells to enemy sunk tracking
+                            enemySunkCells: newSunkCells.length > 0
+                                ? [...prev.enemySunkCells, ...newSunkCells]
+                                : prev.enemySunkCells,
                         };
                     } else {
                         // Update my grid with opponent's shot
                         const newMyGrid = prev.myGrid.map(row => [...row]);
                         newMyGrid[msg.y][msg.x] = msg.hit ? "hit" : "miss";
-                        return { ...prev, myGrid: newMyGrid };
+                        return {
+                            ...prev,
+                            myGrid: newMyGrid,
+                            // Add sunk cells to my sunk tracking
+                            mySunkCells: newSunkCells.length > 0
+                                ? [...prev.mySunkCells, ...newSunkCells]
+                                : prev.mySunkCells,
+                        };
                     }
                 });
                 break;
@@ -265,6 +281,16 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     const isP1 = prev.playerId === msg.p1_id;
                     const myShipsSunk = isP1 ? msg.p1_ships_sunk : msg.p2_ships_sunk;
                     const myProblemsSolved = isP1 ? msg.p1_problems_solved : msg.p2_problems_solved;
+                    const myCellsHit = isP1 ? msg.p1_cells_hit : msg.p2_cells_hit;
+                    const oppShipsSunk = isP1 ? msg.p2_ships_sunk : msg.p1_ships_sunk;
+                    const oppProblemsSolved = isP1 ? msg.p2_problems_solved : msg.p1_problems_solved;
+                    const oppCellsHit = isP1 ? msg.p2_cells_hit : msg.p1_cells_hit;
+
+                    // Resolve board reveal to my/opponent perspective
+                    const revealMyGrid = isP1 ? msg.p1_grid : msg.p2_grid;
+                    const revealMyShips = isP1 ? msg.p1_ships : msg.p2_ships;
+                    const revealOpponentGrid = isP1 ? msg.p2_grid : msg.p1_grid;
+                    const revealOpponentShips = isP1 ? msg.p2_ships : msg.p1_ships;
 
                     return {
                         ...prev,
@@ -277,6 +303,15 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         // Override with authoritative server stats — these are always correct
                         enemyShipsSunk: myShipsSunk,
                         problemsSolved: myProblemsSolved,
+                        myCellsHit: myCellsHit,
+                        opponentShipsSunk: oppShipsSunk,
+                        opponentProblemsSolved: oppProblemsSolved,
+                        opponentCellsHit: oppCellsHit,
+                        // Board reveal data (resolved to my/opponent perspective)
+                        revealMyGrid,
+                        revealMyShips,
+                        revealOpponentGrid,
+                        revealOpponentShips,
                     };
                 });
                 shouldStopReconnect.current = true; // Don't reconnect after game over
