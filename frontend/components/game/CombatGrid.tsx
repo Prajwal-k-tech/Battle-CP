@@ -44,7 +44,7 @@ const Cell = React.memo(function Cell({
             onClick={onClick}
             disabled={!canClick || isHit || isMiss}
             className={cn(
-                "w-7 h-7 sm:w-8 sm:h-8 2xl:w-10 2xl:h-10 border border-white/5 relative flex items-center justify-center transition-all duration-200",
+                "w-7 h-7 sm:w-8 sm:h-8 2xl:w-10 2xl:h-10 border border-white/30 relative flex items-center justify-center transition-all duration-200",
                 canClick && isEmpty && "hover:bg-primary/20 hover:border-primary/50 cursor-crosshair",
                 !canClick && "cursor-default",
                 isShip && !isEnemy && "bg-primary/30 border-primary/40",
@@ -168,7 +168,7 @@ function GridWithLabels({
                     </div>
 
                     {/* Grid */}
-                    <div className="border border-white/10 bg-black/50 backdrop-blur-sm">
+                    <div className="border border-white/25 bg-black/50 backdrop-blur-sm">
                         {Array.from({ length: GRID_SIZE }).map((_, y) => (
                             <div key={y} className="flex">
                                 {Array.from({ length: GRID_SIZE }).map((_, x) => (

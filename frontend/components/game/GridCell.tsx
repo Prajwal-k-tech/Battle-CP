@@ -21,7 +21,7 @@ export function GridCell({ id, x, y, isShip, isValid = true }: Props) {
         <div
             ref={setNodeRef}
             className={cn(
-                "w-8 h-8 sm:w-10 sm:h-10 border border-white/5 relative flex items-center justify-center transition-colors duration-200",
+                "w-8 h-8 sm:w-10 sm:h-10 border border-white/30 relative flex items-center justify-center transition-colors duration-200",
                 isOver && "bg-white/10",
                 isShip && "bg-primary/20 border-primary/50",
                 isShip && !isValid && "bg-destructive/20 border-destructive/50"
