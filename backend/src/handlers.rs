@@ -15,6 +15,7 @@ pub struct CreateGameRequest {
     pub heat_threshold: Option<u32>,
     pub game_duration_mins: Option<u32>,
     pub veto_strictness: Option<String>, // "low", "medium", "high"
+    pub max_vetoes: Option<u32>,
 }
 
 pub async fn create_game(
@@ -80,8 +81,7 @@ pub async fn create_game(
             .unwrap_or(45 * 60)
             .clamp(60, 7200), // Final clamp to 1-120 minutes in seconds
         veto_penalties,
-        // Default max_vetoes to 3
-        ..GameConfig::default()
+        max_vetoes: payload.max_vetoes.unwrap_or(3).clamp(1, 20),
     };
 
     let new_game = Game::new(player_id, handle.to_string(), config);

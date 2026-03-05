@@ -155,6 +155,10 @@ pub struct Player {
     /// Format: "contestId-index" (e.g., "1234-A").
     #[serde(skip)]
     pub solved_set: HashSet<String>,
+    /// Whether `solved_set` was successfully fetched from CF API.
+    /// When false, problem assignment is deferred until a background retry succeeds.
+    #[serde(skip)]
+    pub solved_set_fetched: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

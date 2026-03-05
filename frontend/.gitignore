@@ -19,6 +19,8 @@
 
 # production
 /build
+/private_learning
+/scripts
 
 # misc
 .DS_Store

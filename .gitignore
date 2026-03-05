@@ -22,3 +22,17 @@ private_learning/
 .gemini/
 .venv/
 venv/
+
+# Compiled binaries & test executables
+A_Floor_Number
+*.exe
+*.out
+
+# Test & stress test scripts
+scripts/
+
+# CP IDE cache
+.cph/
+
+# Development/Learning documentation
+TOURNAMENT_READINESS.md

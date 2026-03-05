@@ -664,23 +664,27 @@ async fn handle_client_message(
                 // Drop the write lock to do async I/O
                 drop(games);
 
-                let (p1_solved, p2_solved) = tokio::join!(
-                    state.cf_client.fetch_player_solved(&p1_handle),
-                    state.cf_client.fetch_player_solved(&p2_handle),
+                let ((p1_set, p1_ok), (p2_set, p2_ok)) = tokio::join!(
+                    state.cf_client.fetch_player_solved_with_retry(&p1_handle, 3),
+                    state.cf_client.fetch_player_solved_with_retry(&p2_handle, 3),
                 );
 
                 // Re-acquire the lock and store solved sets
                 let mut games = state.games.write().await;
                 if let Some(game) = games.get_mut(&game_id) {
-                    game.player1.solved_set = p1_solved.unwrap_or_default();
+                    game.player1.solved_set = p1_set;
+                    game.player1.solved_set_fetched = p1_ok;
                     if let Some(ref mut p2) = game.player2 {
-                        p2.solved_set = p2_solved.unwrap_or_default();
+                        p2.solved_set = p2_set;
+                        p2.solved_set_fetched = p2_ok;
                     }
                     tracing::info!(
-                        "Game {:?}: fetched solved sets (P1: {} problems, P2: {} problems)",
+                        "Game {:?}: fetched solved sets (P1: {}{}, P2: {}{})",
                         game_id,
                         game.player1.solved_set.len(),
+                        if p1_ok { "" } else { " [FAILED]" },
                         game.player2.as_ref().map(|p| p.solved_set.len()).unwrap_or(0),
+                        if p2_ok { "" } else { " [FAILED]" },
                     );
 
                     // Get player for response
@@ -888,53 +892,146 @@ async fn handle_client_message(
                         };
 
                         if !already_has {
-                            // Get the pre-fetched solved set (populated when player joined)
-                            let solved_set = if game.player1.id == pid {
-                                &game.player1.solved_set
+                            // Check if solved set was successfully fetched at game start
+                            let solved_fetched = if game.player1.id == pid {
+                                game.player1.solved_set_fetched
                             } else {
-                                &game.player2.as_ref().unwrap().solved_set
+                                game.player2.as_ref().map(|p| p.solved_set_fetched).unwrap_or(false)
                             };
 
-                            // pick_problem is now synchronous — no CF API call, uses in-memory DB + pre-fetched solved set
-                            let assigned = state.cf_client.pick_problem(difficulty, difficulty_mode, solved_set);
+                            if solved_fetched {
+                                // ── NORMAL PATH: solved set available, pick immediately ──
+                                let solved_set = if game.player1.id == pid {
+                                    &game.player1.solved_set
+                                } else {
+                                    &game.player2.as_ref().unwrap().solved_set
+                                };
 
-                            match assigned {
-                                Ok(problem) => {
-                                    let ap = crate::state::AssignedProblem {
-                                        contest_id: problem.contest_id,
-                                        index: problem.index.clone(),
-                                        name: problem.name.clone(),
-                                        rating: problem.rating,
-                                    };
-                                    let tx = game.tx.clone();
-                                    // Store on the player
-                                    if game.player1.id == pid {
-                                        game.player1.active_problem = Some(ap.clone());
-                                    } else if let Some(ref mut p2) = game.player2 {
-                                        p2.active_problem = Some(ap.clone());
+                                let assigned = state.cf_client.pick_problem(
+                                    difficulty, difficulty_mode, solved_set,
+                                );
+
+                                match assigned {
+                                    Ok(problem) => {
+                                        let ap = crate::state::AssignedProblem {
+                                            contest_id: problem.contest_id,
+                                            index: problem.index.clone(),
+                                            name: problem.name.clone(),
+                                            rating: problem.rating,
+                                        };
+                                        let tx = game.tx.clone();
+                                        if game.player1.id == pid {
+                                            game.player1.active_problem = Some(ap.clone());
+                                        } else if let Some(ref mut p2) = game.player2 {
+                                            p2.active_problem = Some(ap.clone());
+                                        }
+                                        let _ = tx.send(crate::state::GameEvent::Message(
+                                            ServerMessage::ProblemAssigned {
+                                                player_id: pid,
+                                                contest_id: ap.contest_id,
+                                                problem_index: ap.index,
+                                                problem_name: ap.name,
+                                                rating: ap.rating,
+                                            },
+                                        ));
                                     }
-                                    // Broadcast ProblemAssigned to both players
-                                    let _ = tx.send(crate::state::GameEvent::Message(
-                                        ServerMessage::ProblemAssigned {
-                                            player_id: pid,
-                                            contest_id: ap.contest_id,
-                                            problem_index: ap.index,
-                                            problem_name: ap.name,
-                                            rating: ap.rating,
-                                        },
-                                    ));
+                                    Err(e) => {
+                                        let shooter_handle = if game.player1.id == pid {
+                                            &game.player1.cf_handle
+                                        } else {
+                                            &game.player2.as_ref().unwrap().cf_handle
+                                        };
+                                        tracing::error!(
+                                            "Failed to pick problem for {}: {}",
+                                            shooter_handle, e
+                                        );
+                                    }
                                 }
-                                Err(e) => {
-                                    let shooter_handle = if game.player1.id == pid {
-                                        &game.player1.cf_handle
+                            } else {
+                                // ── FALLBACK: solved set not fetched yet ──
+                                // Spawn a background task to retry the fetch, then assign.
+                                // Player stays locked with no problem until the task completes.
+                                let games_arc = state.games.clone();
+                                let cf_client = state.cf_client.clone();
+                                let shooter_handle = if game.player1.id == pid {
+                                    game.player1.cf_handle.clone()
+                                } else {
+                                    game.player2.as_ref().unwrap().cf_handle.clone()
+                                };
+                                let tx = game.tx.clone();
+
+                                tracing::warn!(
+                                    "Solved set not available for {} — spawning background fetch",
+                                    shooter_handle
+                                );
+
+                                tokio::spawn(async move {
+                                    let (solved, ok) = cf_client
+                                        .fetch_player_solved_with_retry(&shooter_handle, 3)
+                                        .await;
+
+                                    if !ok {
+                                        tracing::error!(
+                                            "Background fetch_player_solved for {} failed after all retries",
+                                            shooter_handle
+                                        );
+                                    }
+
+                                    let mut games = games_arc.write().await;
+                                    let Some(game) = games.get_mut(&game_id) else { return };
+                                    if game.status == GameStatus::Finished { return; }
+
+                                    let player = if game.player1.id == pid {
+                                        &mut game.player1
+                                    } else if let Some(ref mut p) = game.player2 {
+                                        p
                                     } else {
-                                        &game.player2.as_ref().unwrap().cf_handle
+                                        return;
                                     };
-                                    tracing::error!(
-                                        "Failed to pick problem for {}: {}",
-                                        shooter_handle, e
-                                    );
-                                }
+
+                                    player.solved_set = solved;
+                                    player.solved_set_fetched = ok;
+
+                                    // Guard: player may have been unlocked while we were fetching
+                                    if !player.is_locked || player.active_problem.is_some() {
+                                        return;
+                                    }
+
+                                    match cf_client.pick_problem(
+                                        difficulty,
+                                        difficulty_mode,
+                                        &player.solved_set,
+                                    ) {
+                                        Ok(problem) => {
+                                            let ap = crate::state::AssignedProblem {
+                                                contest_id: problem.contest_id,
+                                                index: problem.index.clone(),
+                                                name: problem.name.clone(),
+                                                rating: problem.rating,
+                                            };
+                                            player.active_problem = Some(ap.clone());
+                                            let _ = tx.send(crate::state::GameEvent::Message(
+                                                ServerMessage::ProblemAssigned {
+                                                    player_id: pid,
+                                                    contest_id: ap.contest_id,
+                                                    problem_index: ap.index,
+                                                    problem_name: ap.name,
+                                                    rating: ap.rating,
+                                                },
+                                            ));
+                                            tracing::info!(
+                                                "Background fetch succeeded: assigned {}-{} to {:?}",
+                                                problem.contest_id, problem.index, pid
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                "Background problem pick failed for {}: {}",
+                                                shooter_handle, e
+                                            );
+                                        }
+                                    }
+                                });
                             }
                         }
                     }

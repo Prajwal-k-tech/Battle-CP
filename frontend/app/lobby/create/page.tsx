@@ -16,7 +16,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 
@@ -43,14 +43,29 @@ export default function CreateGamePage() {
     // Game Settings
     const [difficultyMode, setDifficultyMode] = useState<"cf" | "band">("cf");
     const [cfDifficulty, setCfDifficulty] = useState(800);    // used in CF mode
-    const [bandDifficulty, setBandDifficulty] = useState(1);  // 0-4, used in Band mode
+    const [bandDifficulty, setBandDifficulty] = useState(0);  // 0-4, used in Band mode (0 = Super Easy)
     const [timeLimit, setTimeLimit] = useState(45); // minutes
     const [heatThreshold, setHeatThreshold] = useState(7); // shots before overheat
     const [vetoStrictness, setVetoStrictness] = useState<"low" | "medium" | "high">("medium");
+    const [maxVetoes, setMaxVetoes] = useState(3);
 
     // Derived display values
     const difficulty  = difficultyMode === "cf" ? cfDifficulty : bandDifficulty;
     const selectedBand = BANDS[bandDifficulty];
+
+    // Update defaults when difficulty mode changes
+    useEffect(() => {
+        if (difficultyMode === "band") {
+            setBandDifficulty(0);  // Super Easy
+            setTimeLimit(25);
+            setVetoStrictness("low");
+            setMaxVetoes(9);
+        } else {
+            setTimeLimit(45);
+            setVetoStrictness("medium");
+            setMaxVetoes(3);
+        }
+    }, [difficultyMode]);
 
     const handleCreate = async () => {
         if (!cfHandle.trim()) {
@@ -71,6 +86,7 @@ export default function CreateGamePage() {
                     heat_threshold: heatThreshold,
                     game_duration_mins: timeLimit,
                     veto_strictness: vetoStrictness,
+                    max_vetoes: maxVetoes,
                 }),
             });
 

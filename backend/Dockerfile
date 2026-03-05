@@ -30,5 +30,6 @@ ENV RUST_LOG=info
 
 EXPOSE 3000
 
-# Run the binary
-CMD ["./backend"]
+# Raise file descriptor limit for 500+ concurrent WebSocket connections
+# Default Linux ulimit (1024) is too low for 1000 WS connections + HTTP + misc FDs
+CMD ["sh", "-c", "ulimit -n 65535 2>/dev/null; exec ./backend"]

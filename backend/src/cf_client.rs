@@ -327,23 +327,118 @@ impl CFClient {
     }
 
     // -----------------------------------------------------------------------
+    // Player solved-set with retry  (robust fetch at game start)
+    // -----------------------------------------------------------------------
+
+    /// Fetch player's solved problems with retry logic.
+    /// Returns `(solved_set, success)`. On total failure, returns `(empty, false)`.
+    /// Called at game start to ensure we never serve already-solved problems.
+    pub async fn fetch_player_solved_with_retry(
+        &self,
+        handle: &str,
+        max_retries: u32,
+    ) -> (HashSet<String>, bool) {
+        for attempt in 0..=max_retries {
+            match self.fetch_player_solved(handle).await {
+                Ok(solved) => return (solved, true),
+                Err(e) => {
+                    tracing::warn!(
+                        "fetch_player_solved('{}') attempt {}/{} failed: {}",
+                        handle, attempt + 1, max_retries + 1, e
+                    );
+                    if attempt < max_retries {
+                        tokio::time::sleep(Duration::from_secs(
+                            2u64.saturating_pow(attempt),
+                        ))
+                        .await;
+                    }
+                }
+            }
+        }
+        tracing::error!(
+            "fetch_player_solved('{}') failed after {} retries — solved set unavailable",
+            handle, max_retries + 1
+        );
+        (HashSet::new(), false)
+    }
+
+    // -----------------------------------------------------------------------
     // Problem selection  (in-memory – zero CF API calls for the pool lookup)
     // -----------------------------------------------------------------------
 
     /// Pick a random unsolved problem for the given difficulty + mode.
     ///
-    /// - `difficulty`: CF rating (Cf mode) OR band id 0–4 (Band mode)
-    /// - `mode`:       which difficulty system to use
-    /// - `solved_set`: pre-fetched set of solved problem keys ("contestId-index")
+    /// Strategy:
+    /// 1. Try the exact target difficulty — filter out solved problems.
+    /// 2. If all problems at this level are solved, try adjacent levels
+    ///    (next band in Band mode, ±100 rating in CF mode).
+    /// 3. If truly every problem in the DB is solved, reuse the target pool.
     pub fn pick_problem(
         &self,
         difficulty: u32,
         mode: DifficultyMode,
         solved_set: &HashSet<String>,
     ) -> Result<StaticProblem, Box<dyn Error + Send + Sync>> {
-        // 1. Get the in-memory pool — instant, zero I/O
-        let pool = self.problem_db.pool(difficulty, &mode);
+        // 1. Try the exact target difficulty
+        if let Some(p) = self.try_pick_unsolved(difficulty, &mode, solved_set) {
+            return Ok(p);
+        }
 
+        // 2. All problems at this level are solved — try adjacent levels
+        tracing::info!(
+            "All unsolved problems exhausted at difficulty={} mode={:?} — trying adjacent levels",
+            difficulty, mode
+        );
+
+        let fallback = match mode {
+            DifficultyMode::Band => {
+                let mut found = None;
+                // Try bands outward: +1, -1, +2, -2, …
+                for offset in 1..=4i32 {
+                    for &dir in &[1, -1] {
+                        let cand = difficulty as i32 + offset * dir;
+                        if (0..=4).contains(&cand) {
+                            if let Some(p) = self.try_pick_unsolved(cand as u32, &mode, solved_set) {
+                                tracing::info!("Fallback: serving band {} instead of {}", cand, difficulty);
+                                found = Some(p);
+                                break;
+                            }
+                        }
+                    }
+                    if found.is_some() { break; }
+                }
+                found
+            }
+            DifficultyMode::Cf => {
+                let mut found = None;
+                // Try ratings outward: ±100, ±200, …
+                for offset in 1..=27i32 {
+                    for &dir in &[1, -1] {
+                        let cand = difficulty as i32 + offset * 100 * dir;
+                        if (800..=3500).contains(&cand) {
+                            if let Some(p) = self.try_pick_unsolved(cand as u32, &mode, solved_set) {
+                                tracing::info!("Fallback: serving rating {} instead of {}", cand, difficulty);
+                                found = Some(p);
+                                break;
+                            }
+                        }
+                    }
+                    if found.is_some() { break; }
+                }
+                found
+            }
+        };
+
+        if let Some(p) = fallback {
+            return Ok(p);
+        }
+
+        // 3. Every single problem in the DB is solved — reuse target pool
+        tracing::warn!(
+            "Player has solved ALL problems in the database — reusing target pool at difficulty={}",
+            difficulty
+        );
+        let pool = self.problem_db.pool(difficulty, &mode);
         if pool.is_empty() {
             return Err(format!(
                 "No problems in database for difficulty={} mode={:?}",
@@ -351,28 +446,33 @@ impl CFClient {
             )
             .into());
         }
+        let mut rng = rand::thread_rng();
+        pool.choose(&mut rng)
+            .map(|p| (*p).clone())
+            .ok_or_else(|| "No problems available".into())
+    }
 
-        // 2. Filter out already-solved problems using pre-fetched set
+    /// Try to pick a random unsolved problem from the pool at the given difficulty.
+    /// Returns `None` if the pool is empty or every problem in it is already solved.
+    fn try_pick_unsolved(
+        &self,
+        difficulty: u32,
+        mode: &DifficultyMode,
+        solved_set: &HashSet<String>,
+    ) -> Option<StaticProblem> {
+        let pool = self.problem_db.pool(difficulty, mode);
+        if pool.is_empty() {
+            return None;
+        }
         let unsolved: Vec<&StaticProblem> = pool
             .iter()
             .copied()
             .filter(|p| !solved_set.contains(&format!("{}-{}", p.contest_id, p.index)))
             .collect();
-
-        let candidates = if unsolved.is_empty() {
-            tracing::warn!(
-                "Player has solved all {} problems at difficulty={} mode={:?} — reusing full pool",
-                pool.len(), difficulty, mode
-            );
-            pool
-        } else {
-            unsolved
-        };
-
+        if unsolved.is_empty() {
+            return None;
+        }
         let mut rng = rand::thread_rng();
-        candidates
-            .choose(&mut rng)
-            .map(|p| (*p).clone())
-            .ok_or_else(|| "No problems available".into())
+        unsolved.choose(&mut rng).map(|p| (*p).clone())
     }
 }

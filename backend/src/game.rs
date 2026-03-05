@@ -81,6 +81,7 @@ impl Player {
             active_problem: None,
             locked_at_unix: None,
             solved_set: std::collections::HashSet::new(),
+            solved_set_fetched: false,
         }
     }
 
