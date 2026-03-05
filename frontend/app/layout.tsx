@@ -38,6 +38,7 @@ export const metadata: Metadata = {
 import { SoundProvider } from "@/context/SoundContext";
 import { MusicProvider } from "@/context/MusicContext";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export default function RootLayout({
   children,
@@ -75,6 +76,7 @@ export default function RootLayout({
           </SoundProvider>
         </ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
