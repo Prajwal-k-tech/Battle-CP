@@ -45,7 +45,7 @@ export default function CreateGamePage() {
     const [cfDifficulty, setCfDifficulty] = useState(800);    // used in CF mode
     const [bandDifficulty, setBandDifficulty] = useState(0);  // 0-4, used in Band mode (0 = Super Easy)
     const [timeLimit, setTimeLimit] = useState(45); // minutes
-    const [heatThreshold, setHeatThreshold] = useState(7); // shots before overheat
+    const [heatThreshold, setHeatThreshold] = useState(9); // shots before overheat
     const [vetoStrictness, setVetoStrictness] = useState<"low" | "medium" | "high">("medium");
     const [maxVetoes, setMaxVetoes] = useState(3);
 
