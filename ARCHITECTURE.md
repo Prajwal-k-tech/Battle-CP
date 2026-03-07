@@ -122,7 +122,7 @@ Game::join(player_id, handle)
 // Adds P2, validates not same player
 
 Game::determine_winner()
-// Tiebreaker: ships remaining > cells hit > problems solved > sudden death
+// Tiebreaker: ships remaining > cells hit > sudden death
 
 Player::fire(opponent, x, y, heat_threshold, veto_penalties)
 // 1. Check if locked (veto timer check)
@@ -277,7 +277,5 @@ NEXT_PUBLIC_WS_URL=wss://api.yourdomain.com
 ## Security
 
 - All user IDs are UUIDs (unguessable)
-- CF handles verified before game creation/joining
 - CORS configured via environment
 - Security headers: X-Content-Type-Options, X-Frame-Options, HSTS
-- Rate limiting on verification attempts (10 second cooldown)

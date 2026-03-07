@@ -7,10 +7,7 @@ use uuid::Uuid;
 #[derive(Deserialize)]
 pub struct CreateGameRequest {
     pub cf_handle: String,
-    /// In Cf mode  : CF rating (800 – 3500)
-    /// In Band mode: band id  (0 = Super Easy … 4 = Very Hard)
     pub difficulty: Option<u32>,
-    /// "cf" (default) or "band"
     pub difficulty_mode: Option<DifficultyMode>,
     pub heat_threshold: Option<u32>,
     pub game_duration_mins: Option<u32>,
@@ -24,9 +21,8 @@ pub async fn create_game(
 ) -> (StatusCode, Json<Value>) {
     let handle = payload.cf_handle.trim();
 
-    // Trust the user's CF handle — verification removed for performance.
-    // Entering a wrong handle is self-punishing: the player won't be able
-    // to verify CP solutions, so they can never unlock weapons.
+    // Trust the user's CF handle verification removed for performance.
+    // Entering a wrong handle is self-punishing already 
 
     // RATE LIMIT: max 3 game creations per CF handle per 5 minutes
     {

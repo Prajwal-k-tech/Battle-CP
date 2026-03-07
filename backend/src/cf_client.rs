@@ -249,10 +249,10 @@ impl CFClient {
         index: &str,
         locked_since_unix: Option<u64>,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // Fetch last 50 submissions — CF API returns newest first.
+        //fetch last 5
         let encoded_handle = urlencoding::encode(handle);
         let url = format!(
-            "https://codeforces.com/api/user.status?handle={}&from=1&count=50",
+            "https://codeforces.com/api/user.status?handle={}&from=1&count=5",
             encoded_handle
         );
         let resp = self
