@@ -318,6 +318,11 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                             : msg.winner_id === prev.playerId
                                 ? msg.winner_score
                                 : msg.loser_score,
+                        opponentScore: msg.winner_id === null
+                            ? 0
+                            : msg.winner_id === prev.playerId
+                                ? msg.loser_score
+                                : msg.winner_score,
                     };
                 });
                 shouldStopReconnect.current = true; // Don't reconnect after game over

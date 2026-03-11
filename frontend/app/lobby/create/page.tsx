@@ -41,12 +41,12 @@ export default function CreateGamePage() {
     const [gameId, setGameId] = useState<string | null>(null);
 
     // Game Settings
-    const [difficultyMode, setDifficultyMode] = useState<"cf" | "band">("cf");
+    const [difficultyMode, setDifficultyMode] = useState<"cf" | "band">("band");
     const [cfDifficulty, setCfDifficulty] = useState(800);    // used in CF mode
     const [bandDifficulty, setBandDifficulty] = useState(0);  // 0-4, used in Band mode (0 = Super Easy)
-    const [timeLimit, setTimeLimit] = useState(45); // minutes
-    const [heatThreshold, setHeatThreshold] = useState(7); // shots before overheat
-    const [vetoStrictness, setVetoStrictness] = useState<"low" | "medium" | "high">("medium");
+    const [timeLimit, setTimeLimit] = useState(25); // minutes (band default)
+    const [heatThreshold, setHeatThreshold] = useState(9); // shots before overheat (band default)
+    const [vetoStrictness, setVetoStrictness] = useState<"low" | "medium" | "high">("low");
     const [maxVetoes, setMaxVetoes] = useState(3);
 
     // Derived display values
@@ -328,7 +328,7 @@ export default function CreateGamePage() {
                                                             ))}
                                                         </div>
                                                         <p className="text-[10px] text-zinc-500 font-mono">
-                                                            {vetoStrictness === "low" ? "5/7/10 min" : vetoStrictness === "high" ? "10/15/20 min" : "7/10/15 min"}
+                                                            {vetoStrictness === "low" ? "1/2/3 min" : vetoStrictness === "high" ? "5/7/10 min" : "3/5/7 min"}
                                                         </p>
                                                     </div>
                                                 </div>

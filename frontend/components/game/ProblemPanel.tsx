@@ -157,8 +157,8 @@ export function ProblemPanel({
                                         </p>
                                     </div>
                                     <p className="text-xs text-zinc-500">
-                                        Weapons unlock when timer expires.
-                                        No problem to solve during veto.
+                                        New problem assigned when timer expires.
+                                        You must solve it to unlock weapons.
                                     </p>
                                 </div>
                             ) : !hasProblem ? (

@@ -452,6 +452,70 @@ impl CFClient {
             .ok_or_else(|| "No problems available".into())
     }
 
+    /// Build a shared problem queue for both players.
+    ///
+    /// 1. Compute union of both players' solved sets.
+    /// 2. Split pool into unsolved (neither player solved) and solved.
+    /// 3. Randomly pick up to `count` unsolved problems.
+    /// 4. If fewer than `count` unsolved, fill the remainder with random solved
+    ///    problems from the same band (placed AFTER the unsolved ones).
+    pub fn build_shared_queue(
+        &self,
+        difficulty: u32,
+        mode: &DifficultyMode,
+        p1_solved: &HashSet<String>,
+        p2_solved: &HashSet<String>,
+        count: usize,
+    ) -> Vec<StaticProblem> {
+        let pool = self.problem_db.pool(difficulty, mode);
+        if pool.is_empty() {
+            tracing::warn!(
+                "build_shared_queue: empty pool for difficulty={} mode={:?}",
+                difficulty, mode
+            );
+            return vec![];
+        }
+
+        let mut unsolved: Vec<StaticProblem> = Vec::new();
+        let mut solved: Vec<StaticProblem> = Vec::new();
+
+        for p in &pool {
+            let key = format!("{}-{}", p.contest_id, p.index);
+            if p1_solved.contains(&key) || p2_solved.contains(&key) {
+                solved.push((*p).clone());
+            } else {
+                unsolved.push((*p).clone());
+            }
+        }
+
+        let mut rng = rand::thread_rng();
+        unsolved.shuffle(&mut rng);
+        solved.shuffle(&mut rng);
+
+        let mut queue: Vec<StaticProblem> = Vec::with_capacity(count);
+
+        // Take unsolved first (up to count)
+        let take_unsolved = unsolved.len().min(count);
+        queue.extend(unsolved.into_iter().take(take_unsolved));
+
+        // If not enough, fill remainder with solved (random from same band)
+        let remaining = count.saturating_sub(queue.len());
+        if remaining > 0 {
+            queue.extend(solved.into_iter().take(remaining));
+        }
+
+        tracing::info!(
+            "Built shared queue: {} problems ({} unsolved + {} filler) for difficulty={} mode={:?}",
+            queue.len(),
+            take_unsolved,
+            queue.len().saturating_sub(take_unsolved),
+            difficulty,
+            mode,
+        );
+
+        queue
+    }
+
     /// Try to pick a random unsolved problem from the pool at the given difficulty.
     /// Returns `None` if the pool is empty or every problem in it is already solved.
     fn try_pick_unsolved(

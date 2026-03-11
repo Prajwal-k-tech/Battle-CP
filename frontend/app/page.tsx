@@ -169,7 +169,7 @@ export default function Home() {
                     <ul className="space-y-1 list-disc list-inside text-zinc-400">
                       <li>Click a cell on the enemy grid to fire.</li>
                       <li>Every shot generates <span className="text-orange-400">Heat</span>.</li>
-                      <li>Reach <span className="text-red-400">7 Heat</span> → weapons <span className="text-red-400">OVERHEAT</span>. You cannot fire while locked.</li>
+                      <li>Reach the <span className="text-red-400">Heat Threshold</span> (default <span className="text-red-400">9 shots</span>) → weapons <span className="text-red-400">OVERHEAT</span>. You cannot fire while locked.</li>
                     </ul>
                     <div className="mt-2 p-2 border border-white/10 rounded bg-white/5 text-zinc-400">
                       <span className="text-emerald-400">Active cool-down:</span> Solve a Codeforces problem to instantly reset all heat.
@@ -178,11 +178,11 @@ export default function Home() {
 
                   <RulesSection title="4. VETO MECHANIC">
                     <ul className="space-y-1 list-disc list-inside text-zinc-400">
-                      <li>You have <span className="text-white">3 Vetoes</span> total.</li>
+                      <li>You have <span className="text-white">3 Vetoes</span> (configurable).</li>
                       <li>Use a Veto to skip the assigned problem at the cost of a timed penalty.</li>
-                      <li>Penalty durations: <span className="text-yellow-400">7 min → 10 min → 15 min</span> (escalating).</li>
+                      <li>When the timer expires, a <span className="text-yellow-400">new problem is assigned</span> — you must solve it to unlock.</li>
+                      <li>Penalty durations (default Low): <span className="text-yellow-400">1 min → 2 min → 3 min</span> (escalating).</li>
                       <li>Your opponent can still fire at you during your penalty.</li>
-                      <li>Weapons unlock automatically once the penalty timer expires.</li>
                     </ul>
                   </RulesSection>
 

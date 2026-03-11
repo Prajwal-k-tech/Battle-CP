@@ -49,19 +49,39 @@ pub async fn start_global_ticker(state: AppState) {
                             .copied()
                             .unwrap_or(900);
                         if veto_start.elapsed().as_secs() >= duration {
-                            game.player1.unlock_weapons(); // also clears veto_started_at
-                            let _ =
-                                game.tx
-                                    .send(GameEvent::Message(ServerMessage::WeaponsUnlocked {
+                            // Veto expired — assign next problem from queue (must solve to unlock)
+                            game.player1.veto_started_at = None;
+                            game.player1.last_verification_attempt = None;
+                            let idx = game.p1_queue_idx;
+                            if idx < game.problem_queue.len() {
+                                let ap = game.problem_queue[idx].clone();
+                                game.p1_queue_idx += 1;
+                                game.player1.active_problem = Some(ap.clone());
+                                let _ = game.tx.send(GameEvent::Message(
+                                    ServerMessage::ProblemAssigned {
                                         player_id: game.player1.id,
-                                        reason: "veto_expired".to_string(),
-                                    }));
+                                        contest_id: ap.contest_id,
+                                        problem_index: ap.index,
+                                        problem_name: ap.name,
+                                        rating: ap.rating,
+                                    },
+                                ));
+                            } else {
+                                // Queue exhausted — unlock as mercy rule
+                                game.player1.unlock_weapons();
+                                let _ =
+                                    game.tx
+                                        .send(GameEvent::Message(ServerMessage::WeaponsUnlocked {
+                                            player_id: game.player1.id,
+                                            reason: "veto_expired".to_string(),
+                                        }));
+                            }
                         }
                     }
                 }
 
                 //Check player 2 veto expiry
-                if let Some(ref mut p2) = game.player2 {
+                let p2_veto_expired = game.player2.as_ref().and_then(|p2| {
                     if p2.is_locked {
                         if let Some(veto_start) = p2.veto_started_at {
                             let duration = veto_durations
@@ -69,16 +89,42 @@ pub async fn start_global_ticker(state: AppState) {
                                 .copied()
                                 .unwrap_or(900);
                             if veto_start.elapsed().as_secs() >= duration {
-                                let p2_id = p2.id;
-                                p2.unlock_weapons(); // also clears veto_started_at
-                                let _ = game.tx.send(GameEvent::Message(
-                                    ServerMessage::WeaponsUnlocked {
-                                        player_id: p2_id,
-                                        reason: "veto_expired".to_string(),
-                                    },
-                                ));
+                                return Some(p2.id);
                             }
                         }
+                    }
+                    None
+                });
+
+                if let Some(p2_id) = p2_veto_expired {
+                    let idx = game.p2_queue_idx;
+                    let next_problem = game.problem_queue.get(idx).cloned();
+
+                    if let Some(ap) = next_problem {
+                        game.p2_queue_idx += 1;
+                        let p2 = game.player2.as_mut().unwrap();
+                        p2.veto_started_at = None;
+                        p2.last_verification_attempt = None;
+                        p2.active_problem = Some(ap.clone());
+                        let _ = game.tx.send(GameEvent::Message(
+                            ServerMessage::ProblemAssigned {
+                                player_id: p2_id,
+                                contest_id: ap.contest_id,
+                                problem_index: ap.index,
+                                problem_name: ap.name,
+                                rating: ap.rating,
+                            },
+                        ));
+                    } else {
+                        // Queue exhausted — unlock as mercy rule
+                        let p2 = game.player2.as_mut().unwrap();
+                        p2.unlock_weapons();
+                        let _ = game.tx.send(GameEvent::Message(
+                            ServerMessage::WeaponsUnlocked {
+                                player_id: p2_id,
+                                reason: "veto_expired".to_string(),
+                            },
+                        ));
                     }
                 }
 
@@ -101,6 +147,7 @@ pub async fn start_global_ticker(state: AppState) {
                                 let go_msg = crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string());
                                 game.game_over_msg = Some(go_msg.clone());
                                 let _ = game.tx.send(GameEvent::Message(go_msg));
+                                crate::discord::log_game(game, winner, "Timeout");
                             }
                             TiebreakResult::Player2Wins => {
                                 game.status = GameStatus::Finished;
@@ -109,6 +156,7 @@ pub async fn start_global_ticker(state: AppState) {
                                 let go_msg = crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string());
                                 game.game_over_msg = Some(go_msg.clone());
                                 let _ = game.tx.send(GameEvent::Message(go_msg));
+                                crate::discord::log_game(game, winner, "Timeout");
                             }
                             TiebreakResult::SuddenDeath => {
                                 // Sudden Death: first player to land a HIT wins.
@@ -133,6 +181,7 @@ pub async fn start_global_ticker(state: AppState) {
                         let go_msg = crate::game::build_game_over(game, None, "SuddenDeathTimeout".to_string());
                         game.game_over_msg = Some(go_msg.clone());
                         let _ = game.tx.send(GameEvent::Message(go_msg));
+                        crate::discord::log_game(game, None, "SuddenDeathTimeout");
                         tracing::info!("Game {:?} sudden death timed out (10 min)", game.id);
                     }
                 }

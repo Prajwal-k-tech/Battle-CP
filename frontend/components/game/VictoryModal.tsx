@@ -31,6 +31,7 @@ interface VictoryModalProps {
     opponentGrid: string[][] | null;
     opponentShips: RevealedShip[] | null;
     myScore?: number | null;
+    opponentScore?: number | null;
 }
 
 const reasonLabels: Record<string, string> = {
@@ -170,6 +171,7 @@ export function VictoryModal({
     opponentGrid,
     opponentShips,
     myScore,
+    opponentScore,
 }: VictoryModalProps) {
     const { playShipPlace, playJoin } = useSound();
 
@@ -249,14 +251,14 @@ export function VictoryModal({
                                         <span></span>
                                         <span className="text-red-400">OPPONENT</span>
                                     </div>
-                                    {myScore != null && (
+                                    {myScore != null && opponentScore != null && (
                                         <ComparisonRow
                                             icon={<Gauge className="w-3.5 h-3.5" />}
                                             label="Score"
-                                            myVal={myScore >= 0 ? `+${myScore.toFixed(3)}` : myScore.toFixed(3)}
-                                            oppVal={(-myScore) >= 0 ? `+${(-myScore).toFixed(3)}` : (-myScore).toFixed(3)}
-                                            myBetter={myScore > 0}
-                                            oppBetter={myScore < 0}
+                                            myVal={`+${myScore.toFixed(1)}`}
+                                            oppVal={`+${opponentScore.toFixed(1)}`}
+                                            myBetter={myScore > opponentScore}
+                                            oppBetter={opponentScore > myScore}
                                         />
                                     )}
                                     <ComparisonRow

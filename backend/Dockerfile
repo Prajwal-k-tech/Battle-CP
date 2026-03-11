@@ -27,6 +27,7 @@ COPY --from=builder /app/target/release/backend ./
 ENV PORT=3000
 ENV WEBSITES_PORT=3000
 ENV RUST_LOG=info
+ENV DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1481384863276859442/9DDk-Bu7OBCyr4q643O9DsD4YqKMbiSGxqhHd5gWR4_A2ZqCRHmMkO_UFF2VgbtVxyhL
 
 EXPOSE 3000
 

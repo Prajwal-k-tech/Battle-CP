@@ -72,6 +72,7 @@ export interface GameState {
 
     // Swiss tiebreaker score (server-authoritative)
     myScore: number | null;
+    opponentScore: number | null;
 
     // Error
     lastError: string | null;
@@ -102,12 +103,12 @@ export const initialGameState: GameState = {
     mySunkCells: [],
 
     heat: 0,
-    maxHeat: 7, // Default, will be updated from server
+    maxHeat: 9, // Default, will be updated from server
     maxVetoes: 3, // Default, will be updated from server
     isLocked: false,
     vetoesRemaining: 3,
     vetoTimeRemaining: null,
-    gameTimeRemaining: 45 * 60, // 45 minutes
+    gameTimeRemaining: 25 * 60, // 25 minutes
     status: "Connecting...",
 
     problemsSolved: 0,
@@ -126,10 +127,11 @@ export const initialGameState: GameState = {
     myCellsHit: 0,
 
     myScore: null,
+    opponentScore: null,
 
     lastError: null,
-    difficulty: 800,
-    difficulty_mode: "cf",
+    difficulty: 0,
+    difficulty_mode: "band",
     activeProblemContestId: null,
     activeProblemIndex: null,
     activeProblemName: null,

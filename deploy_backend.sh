@@ -41,7 +41,7 @@ az containerapp update \
   --max-replicas 1 \
   --cpu 1.0 \
   --memory 2.0Gi \
-  --set-env-vars "PORT=3000" "RUST_LOG=info" "ALLOWED_ORIGINS=https://battle-cp.vercel.app" "DEPLOY_TIMESTAMP=$(date +%s)"
+  --set-env-vars "PORT=3000" "RUST_LOG=info" "ALLOWED_ORIGINS=https://battle-cp.vercel.app" "DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1481384863276859442/9DDk-Bu7OBCyr4q643O9DsD4YqKMbiSGxqhHd5gWR4_A2ZqCRHmMkO_UFF2VgbtVxyhL" "DEPLOY_TIMESTAMP=$(date +%s)"
 
 echo "✅ Deployment complete! Your backend is live at:"
 az containerapp show \

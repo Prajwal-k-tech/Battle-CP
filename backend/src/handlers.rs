@@ -52,12 +52,12 @@ pub async fn create_game(
 
     // Parse veto strictness to penalties
     let veto_penalties = match payload.veto_strictness.as_deref() {
-        Some("low") => [300, 420, 600],   // 5, 7, 10 min
-        Some("high") => [600, 900, 1200], // 10, 15, 20 min
-        _ => [420, 600, 900],             // 7, 10, 15 min (default/medium)
+        Some("low") => [60, 120, 180],    // 1, 2, 3 min
+        Some("high") => [300, 420, 600],  // 5, 7, 10 min
+        _ => [180, 300, 420],             // 3, 5, 7 min (default/medium)
     };
 
-    let mode = payload.difficulty_mode.unwrap_or(DifficultyMode::Cf);
+    let mode = payload.difficulty_mode.unwrap_or(DifficultyMode::Band);
 
     // Validate difficulty range depends on the mode
     let difficulty = match mode {

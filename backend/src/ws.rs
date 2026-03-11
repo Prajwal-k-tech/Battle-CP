@@ -705,6 +705,33 @@ async fn handle_client_message(
                         if p2_ok { "" } else { " [FAILED]" },
                     );
 
+                    // Build shared problem queue from union of both solved sets.
+                    // Both players draw from the same pre-built queue in order.
+                    {
+                        let empty_set = std::collections::HashSet::new();
+                        let p2_solved = game.player2.as_ref()
+                            .map(|p| &p.solved_set)
+                            .unwrap_or(&empty_set);
+                        let queue = state.cf_client.build_shared_queue(
+                            game.config.difficulty,
+                            &game.config.difficulty_mode,
+                            &game.player1.solved_set,
+                            p2_solved,
+                            50,
+                        );
+                        game.problem_queue = queue.into_iter().map(|p| crate::state::AssignedProblem {
+                            contest_id: p.contest_id,
+                            index: p.index,
+                            name: p.name,
+                            rating: p.rating,
+                        }).collect();
+                        tracing::info!(
+                            "Game {:?}: built shared queue with {} problems",
+                            game_id,
+                            game.problem_queue.len(),
+                        );
+                    }
+
                     // Get player for response
                     let player = if is_player1 {
                         &game.player1
@@ -796,7 +823,7 @@ async fn handle_client_message(
             let res = if game.player1.id == pid {
                 if let Some(ref mut p2) = game.player2 {
                     game.player1
-                        .fire(p2, x, y, config.heat_threshold, &config.veto_penalties)
+                        .fire(p2, x, y, config.heat_threshold)
                 } else {
                     return vec![ServerMessage::Error {
                         message: "Waiting for opponent".to_string(),
@@ -805,7 +832,7 @@ async fn handle_client_message(
             } else if game.player2.as_ref().map(|p| p.id) == Some(pid) {
                 let p1 = &mut game.player1;
                 if let Some(ref mut p2) = game.player2 {
-                    p2.fire(p1, x, y, config.heat_threshold, &config.veto_penalties)
+                    p2.fire(p1, x, y, config.heat_threshold)
                 } else {
                     return vec![ServerMessage::Error {
                         message: "Opponent missing".to_string(),
@@ -881,6 +908,7 @@ async fn handle_client_message(
                         let go_msg = crate::game::build_game_over(game, Some(pid), "AllShipsSunk".to_string());
                         game.game_over_msg = Some(go_msg.clone());
                         let _ = game.tx.send(crate::state::GameEvent::Message(go_msg));
+                        crate::discord::log_game(game, Some(pid), "AllShipsSunk");
                     }
 
                     // SUDDEN DEATH: First hit wins!
@@ -890,6 +918,7 @@ async fn handle_client_message(
                         let go_msg = crate::game::build_game_over(game, Some(pid), "SuddenDeath - First hit wins!".to_string());
                         game.game_over_msg = Some(go_msg.clone());
                         let _ = game.tx.send(crate::state::GameEvent::Message(go_msg));
+                        crate::discord::log_game(game, Some(pid), "SuddenDeath");
                     }
 
                     // Bug 9 fix: Don't return ShotResult directly — broadcast handles it
@@ -897,11 +926,8 @@ async fn handle_client_message(
 
                     // ── SERVER-SIDE PROBLEM ASSIGNMENT ──
                     // If the shooter just got locked and the game isn't over,
-                    // pick a problem from CF and assign it.
+                    // assign next problem from the shared queue.
                     if shooter_locked && game.status != GameStatus::Finished {
-                        let difficulty = game.config.difficulty;
-                        let difficulty_mode = game.config.difficulty_mode.clone();
-
                         // Check if already has a problem (shouldn't happen, but be safe)
                         let already_has = if game.player1.id == pid {
                             game.player1.active_problem.is_some()
@@ -910,146 +936,56 @@ async fn handle_client_message(
                         };
 
                         if !already_has {
-                            // Check if solved set was successfully fetched at game start
-                            let solved_fetched = if game.player1.id == pid {
-                                game.player1.solved_set_fetched
-                            } else {
-                                game.player2.as_ref().map(|p| p.solved_set_fetched).unwrap_or(false)
-                            };
+                            let is_p1 = game.player1.id == pid;
 
-                            if solved_fetched {
-                                // ── NORMAL PATH: solved set available, pick immediately ──
-                                let solved_set = if game.player1.id == pid {
+                            // Draw from shared problem queue
+                            let queue_idx = if is_p1 { &mut game.p1_queue_idx } else { &mut game.p2_queue_idx };
+                            let assigned = if *queue_idx < game.problem_queue.len() {
+                                let ap = game.problem_queue[*queue_idx].clone();
+                                *queue_idx += 1;
+                                Some(ap)
+                            } else {
+                                // Queue exhausted — fallback to pick_problem()
+                                tracing::warn!("Problem queue exhausted for player {:?}, falling back to pick_problem", pid);
+                                let solved_set = if is_p1 {
                                     &game.player1.solved_set
                                 } else {
                                     &game.player2.as_ref().unwrap().solved_set
                                 };
-
-                                let assigned = state.cf_client.pick_problem(
-                                    difficulty, difficulty_mode, solved_set,
-                                );
-
-                                match assigned {
-                                    Ok(problem) => {
-                                        let ap = crate::state::AssignedProblem {
-                                            contest_id: problem.contest_id,
-                                            index: problem.index.clone(),
-                                            name: problem.name.clone(),
-                                            rating: problem.rating,
-                                        };
-                                        let tx = game.tx.clone();
-                                        if game.player1.id == pid {
-                                            game.player1.active_problem = Some(ap.clone());
-                                        } else if let Some(ref mut p2) = game.player2 {
-                                            p2.active_problem = Some(ap.clone());
-                                        }
-                                        let _ = tx.send(crate::state::GameEvent::Message(
-                                            ServerMessage::ProblemAssigned {
-                                                player_id: pid,
-                                                contest_id: ap.contest_id,
-                                                problem_index: ap.index,
-                                                problem_name: ap.name,
-                                                rating: ap.rating,
-                                            },
-                                        ));
-                                    }
+                                match state.cf_client.pick_problem(
+                                    game.config.difficulty,
+                                    game.config.difficulty_mode.clone(),
+                                    solved_set,
+                                ) {
+                                    Ok(p) => Some(crate::state::AssignedProblem {
+                                        contest_id: p.contest_id,
+                                        index: p.index,
+                                        name: p.name,
+                                        rating: p.rating,
+                                    }),
                                     Err(e) => {
-                                        let shooter_handle = if game.player1.id == pid {
-                                            &game.player1.cf_handle
-                                        } else {
-                                            &game.player2.as_ref().unwrap().cf_handle
-                                        };
-                                        tracing::error!(
-                                            "Failed to pick problem for {}: {}",
-                                            shooter_handle, e
-                                        );
+                                        tracing::error!("Queue exhausted + pick_problem failed: {}", e);
+                                        None
                                     }
                                 }
-                            } else {
-                                // ── FALLBACK: solved set not fetched yet ──
-                                // Spawn a background task to retry the fetch, then assign.
-                                // Player stays locked with no problem until the task completes.
-                                let games_arc = state.games.clone();
-                                let cf_client = state.cf_client.clone();
-                                let shooter_handle = if game.player1.id == pid {
-                                    game.player1.cf_handle.clone()
-                                } else {
-                                    game.player2.as_ref().unwrap().cf_handle.clone()
-                                };
+                            };
+
+                            if let Some(ap) = assigned {
                                 let tx = game.tx.clone();
-
-                                tracing::warn!(
-                                    "Solved set not available for {} — spawning background fetch",
-                                    shooter_handle
-                                );
-
-                                tokio::spawn(async move {
-                                    let (solved, ok) = cf_client
-                                        .fetch_player_solved_with_retry(&shooter_handle, 3)
-                                        .await;
-
-                                    if !ok {
-                                        tracing::error!(
-                                            "Background fetch_player_solved for {} failed after all retries",
-                                            shooter_handle
-                                        );
-                                    }
-
-                                    let mut games = games_arc.write().await;
-                                    let Some(game) = games.get_mut(&game_id) else { return };
-                                    if game.status == GameStatus::Finished { return; }
-
-                                    let player = if game.player1.id == pid {
-                                        &mut game.player1
-                                    } else if let Some(ref mut p) = game.player2 {
-                                        p
-                                    } else {
-                                        return;
-                                    };
-
-                                    player.solved_set = solved;
-                                    player.solved_set_fetched = ok;
-
-                                    // Guard: player may have been unlocked while we were fetching
-                                    if !player.is_locked || player.active_problem.is_some() {
-                                        return;
-                                    }
-
-                                    match cf_client.pick_problem(
-                                        difficulty,
-                                        difficulty_mode,
-                                        &player.solved_set,
-                                    ) {
-                                        Ok(problem) => {
-                                            let ap = crate::state::AssignedProblem {
-                                                contest_id: problem.contest_id,
-                                                index: problem.index.clone(),
-                                                name: problem.name.clone(),
-                                                rating: problem.rating,
-                                            };
-                                            player.active_problem = Some(ap.clone());
-                                            let _ = tx.send(crate::state::GameEvent::Message(
-                                                ServerMessage::ProblemAssigned {
-                                                    player_id: pid,
-                                                    contest_id: ap.contest_id,
-                                                    problem_index: ap.index,
-                                                    problem_name: ap.name,
-                                                    rating: ap.rating,
-                                                },
-                                            ));
-                                            tracing::info!(
-                                                "Background fetch succeeded: assigned {}-{} to {:?}",
-                                                problem.contest_id, problem.index, pid
-                                            );
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Background problem pick failed for {}: {}",
-                                                shooter_handle, e
-                                            );
-                                        }
-                                    }
-                                });
+                                if is_p1 {
+                                    game.player1.active_problem = Some(ap.clone());
+                                } else if let Some(ref mut p2) = game.player2 {
+                                    p2.active_problem = Some(ap.clone());
+                                }
+                                let _ = tx.send(crate::state::GameEvent::Message(
+                                    ServerMessage::ProblemAssigned {
+                                        player_id: pid,
+                                        contest_id: ap.contest_id,
+                                        problem_index: ap.index,
+                                        problem_name: ap.name,
+                                        rating: ap.rating,
+                                    },
+                                ));
                             }
                         }
                     }
@@ -1186,6 +1122,13 @@ async fn handle_client_message(
                         // ticker racing with this response (unlikely but defensive)
                         if !player.is_locked {
                             return vec![];
+                        }
+
+                        // Add the just-solved problem to solved_set so it is never
+                        // re-assigned in future lock sessions during the same game.
+                        if let Some(ref ap) = player.active_problem {
+                            let key = format!("{}-{}", ap.contest_id, ap.index);
+                            player.solved_set.insert(key);
                         }
 
                         player.unlock_weapons();

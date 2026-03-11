@@ -40,7 +40,6 @@ async fn test_heat_accumulation_and_lock() {
             i % 10,
             0,
             game.config.heat_threshold,
-            &game.config.veto_penalties,
         );
         assert!(result.is_ok(), "Shot {} should succeed", i);
     }
@@ -61,7 +60,6 @@ async fn test_heat_accumulation_and_lock() {
             6,
             0,
             game.config.heat_threshold,
-            &game.config.veto_penalties,
         );
         assert!(result.is_ok(), "7th shot should succeed");
     }
@@ -82,7 +80,6 @@ async fn test_heat_accumulation_and_lock() {
             7,
             0,
             game.config.heat_threshold,
-            &game.config.veto_penalties,
         );
         assert!(result.is_err(), "Shot should fail when locked");
     }
@@ -107,7 +104,6 @@ async fn test_heat_accumulation_and_lock() {
             8,
             0,
             game.config.heat_threshold,
-            &game.config.veto_penalties,
         );
         assert!(result.is_ok(), "Should be able to fire after unlock");
     }

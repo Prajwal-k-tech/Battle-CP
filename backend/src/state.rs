@@ -52,7 +52,7 @@ pub struct GameConfig {
     pub difficulty: u32,
     pub difficulty_mode: DifficultyMode,
     pub heat_threshold: u32,      // 5, 7, 10, 15
-    pub veto_penalties: [u64; 3], // seconds: 7, 10, 15 min
+    pub veto_penalties: [u64; 3], // seconds per veto (escalating)
     pub max_vetoes: u32,
     pub game_duration_secs: u64, // default: 45 * 60 = 2700
 }
@@ -60,10 +60,10 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            difficulty: 800,
-            difficulty_mode: DifficultyMode::Cf,
+            difficulty: 0,
+            difficulty_mode: DifficultyMode::Band,
             heat_threshold: 7,
-            veto_penalties: [420, 600, 900], // 7, 10, 15 minutes
+            veto_penalties: [180, 300, 420], // 3, 5, 7 minutes (medium default)
             max_vetoes: 3,
             game_duration_secs: 2700, // 45 minutes (written in seconds)
         }
@@ -115,6 +115,13 @@ pub struct Game {
     pub finished_at: Option<std::time::Instant>, // For auto-cleanup
     #[serde(skip)]
     pub game_over_msg: Option<crate::protocol::ServerMessage>, // Cached for reconnect replay
+    /// Shared problem queue — both players draw from this in order.
+    #[serde(skip)]
+    pub problem_queue: Vec<AssignedProblem>,
+    #[serde(skip)]
+    pub p1_queue_idx: usize,
+    #[serde(skip)]
+    pub p2_queue_idx: usize,
     #[serde(skip)]
     pub tx: broadcast::Sender<GameEvent>,
 }

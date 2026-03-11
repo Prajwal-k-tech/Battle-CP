@@ -17,6 +17,9 @@ impl Game {
             game_started_at: None,
             finished_at: None,
             game_over_msg: None,
+            problem_queue: vec![],
+            p1_queue_idx: 0,
+            p2_queue_idx: 0,
             tx,
         }
     }
@@ -92,22 +95,10 @@ impl Player {
         x: usize,
         y: usize,
         heat_threshold: u32,
-        veto_penalties: &[u64; 3],
     ) -> Result<(String, bool, Option<Vec<[usize; 2]>>), &'static str> {
         if self.is_locked {
-            // Check veto timer
-            if let Some(start) = self.veto_started_at {
-                let required_secs = veto_penalties
-                    .get(self.vetoes_used.saturating_sub(1) as usize)
-                    .copied()
-                    .unwrap_or(900);
-                if start.elapsed() >= std::time::Duration::from_secs(required_secs) {
-                    // Timer expired — use unlock_weapons() for consistent full reset
-                    // (clears heat, active_problem, veto_started_at, locked_at_unix, etc.)
-                    self.unlock_weapons();
-                } else {
-                    return Err("Weapons Locked! Wait for veto timer.");
-                }
+            if self.veto_started_at.is_some() {
+                return Err("Weapons Locked! Wait for veto timer.");
             } else {
                 return Err("Weapons Locked! Solve CP problem or use Veto.");
             }
@@ -296,11 +287,11 @@ pub fn build_game_over(
         .game_started_at
         .map(|s| s.elapsed().as_secs().min(game_duration))
         .unwrap_or(game_duration);
-    let (winner_score, loser_score) = if winner_id.is_some() && game_duration > 0 {
-        let w = (game_duration - time_taken_secs) as f64 / game_duration as f64;
-        (w, -w)
+    let (winner_score, loser_score) = if winner_id.is_some() {
+        let w = (game_duration - time_taken_secs) as f64 + 1.0;
+        (w, 1.0)
     } else {
-        (0.0, 0.0)
+        (1.0, 1.0)
     };
 
     crate::protocol::ServerMessage::GameOver {
