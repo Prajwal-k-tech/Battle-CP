@@ -8,8 +8,7 @@ use uuid::Uuid;
 pub struct AppState {
     pub games: Arc<RwLock<HashMap<Uuid, Game>>>,
     pub cf_client: crate::cf_client::CFClient,
-    /// Rate limiter: maps CF handle → (first_request_time, count) for game creation
-    pub rate_limiter: Arc<Mutex<HashMap<String, (std::time::Instant, u32)>>>,
+    pub rate_limiter: Arc<Mutex<HashMap<String, (std::time::Instant, u32)>>>, //a rate limiter for game creation 
 }
 
 impl Default for AppState {
