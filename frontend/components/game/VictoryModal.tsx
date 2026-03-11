@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trophy, Skull, Home, RotateCcw, Target, Brain, Ship, Clock, Gauge } from "lucide-react";
+import { Trophy, Skull, Home, RotateCcw, Target, Brain, Ship, Gauge } from "lucide-react";
 import Link from "next/link";
 import { RevealedShip } from "@/types/game";
 import { useSound } from "@/context/SoundContext";
@@ -35,10 +35,9 @@ interface VictoryModalProps {
     myScore?: number | null;
 }
 
-function formatDuration(secs: number): string {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+function formatScore(score: number): string {
+    if (Object.is(score, -0) || score === 0) return "+0.000";
+    return `${score > 0 ? "+" : ""}${score.toFixed(3)}`;
 }
 
 const reasonLabels: Record<string, string> = {
@@ -185,7 +184,7 @@ export function VictoryModal({
     if (!isOpen) return null;
 
     const hasBoards = myGrid && myShips && opponentGrid && opponentShips;
-    const isTimeout = reason === "LobbyTimeout" || reason === "PlacementTimeout" || reason === "SuddenDeathTimeout";
+    const hideCompetitiveStats = reason === "LobbyTimeout" || reason === "PlacementTimeout";
 
     return (
         <AnimatePresence>
@@ -251,13 +250,23 @@ export function VictoryModal({
 
                         <CardContent className="space-y-5">
                             {/* Side-by-side stats comparison */}
-                            {!isTimeout && (
+                            {!hideCompetitiveStats && (
                                 <div className="space-y-2">
                                     <div className="grid grid-cols-3 gap-2 text-center text-xs text-zinc-500 font-mono">
                                         <span className="text-blue-400">YOU</span>
                                         <span></span>
                                         <span className="text-red-400">OPPONENT</span>
                                     </div>
+                                    {myScore != null && (
+                                        <ComparisonRow
+                                            icon={<Gauge className="w-3.5 h-3.5" />}
+                                            label="Score"
+                                            myVal={formatScore(myScore)}
+                                            oppVal={formatScore(-myScore)}
+                                            myBetter={myScore > 0}
+                                            oppBetter={myScore < 0}
+                                        />
+                                    )}
                                     <ComparisonRow
                                         icon={<Target className="w-3.5 h-3.5" />}
                                         label="Hits"
@@ -276,35 +285,6 @@ export function VictoryModal({
                                         myVal={myStats.problemsSolved}
                                         oppVal={opponentStats.problemsSolved}
                                     />
-                                </div>
-                            )}
-
-                            {/* Time + Swiss Score */}
-                            {gameTimeSecs != null && (
-                                <div className="border border-white/10 rounded-lg px-4 py-3 space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-zinc-500">
-                                            <Clock className="w-3.5 h-3.5" />
-                                            Duration
-                                        </span>
-                                        <span className="text-sm font-mono text-zinc-200">
-                                            {formatDuration(gameTimeSecs)}
-                                        </span>
-                                    </div>
-                                    {myScore != null && (
-                                        <div className="flex items-center justify-between">
-                                            <span className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-zinc-500">
-                                                <Gauge className="w-3.5 h-3.5" />
-                                                Swiss Score
-                                            </span>
-                                            <span className={cn(
-                                                "text-sm font-mono font-bold",
-                                                myScore > 0 ? "text-emerald-400" : myScore < 0 ? "text-red-400" : "text-zinc-400"
-                                            )}>
-                                                {myScore >= 0 ? "+" : ""}{myScore.toFixed(3)}
-                                            </span>
-                                        </div>
-                                    )}
                                 </div>
                             )}
 
@@ -379,21 +359,26 @@ function ComparisonRow({
     label,
     myVal,
     oppVal,
+    myBetter,
+    oppBetter,
 }: {
     icon: React.ReactNode;
     label: string;
-    myVal: number;
-    oppVal: number;
+    myVal: number | string;
+    oppVal: number | string;
+    myBetter?: boolean;
+    oppBetter?: boolean;
 }) {
-    const myBetter = myVal > oppVal;
-    const oppBetter = oppVal > myVal;
+    const comparable = typeof myVal === "number" && typeof oppVal === "number";
+    const resolvedMyBetter = myBetter ?? (comparable ? myVal > oppVal : false);
+    const resolvedOppBetter = oppBetter ?? (comparable ? oppVal > myVal : false);
 
     return (
         <div className="grid grid-cols-3 gap-2 items-center">
             <div className={cn(
                 "bg-white/5 rounded-lg px-3 py-2 text-center font-mono text-lg",
-                myBetter && "text-emerald-400",
-                !myBetter && "text-white"
+                resolvedMyBetter && "text-emerald-400",
+                !resolvedMyBetter && "text-white"
             )}>
                 {myVal}
             </div>
@@ -403,8 +388,8 @@ function ComparisonRow({
             </div>
             <div className={cn(
                 "bg-white/5 rounded-lg px-3 py-2 text-center font-mono text-lg",
-                oppBetter && "text-emerald-400",
-                !oppBetter && "text-white"
+                resolvedOppBetter && "text-emerald-400",
+                !resolvedOppBetter && "text-white"
             )}>
                 {oppVal}
             </div>
