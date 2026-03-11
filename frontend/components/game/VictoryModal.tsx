@@ -30,14 +30,7 @@ interface VictoryModalProps {
     myShips: RevealedShip[] | null;
     opponentGrid: string[][] | null;
     opponentShips: RevealedShip[] | null;
-    // Swiss tiebreaker stats (server-authoritative)
-    gameTimeSecs?: number | null;
     myScore?: number | null;
-}
-
-function formatScore(score: number): string {
-    if (Object.is(score, -0) || score === 0) return "+0.000";
-    return `${score > 0 ? "+" : ""}${score.toFixed(3)}`;
 }
 
 const reasonLabels: Record<string, string> = {
@@ -176,7 +169,6 @@ export function VictoryModal({
     myShips,
     opponentGrid,
     opponentShips,
-    gameTimeSecs,
     myScore,
 }: VictoryModalProps) {
     const { playShipPlace, playJoin } = useSound();
@@ -184,7 +176,7 @@ export function VictoryModal({
     if (!isOpen) return null;
 
     const hasBoards = myGrid && myShips && opponentGrid && opponentShips;
-    const hideCompetitiveStats = reason === "LobbyTimeout" || reason === "PlacementTimeout";
+    const isTimeout = reason === "LobbyTimeout" || reason === "PlacementTimeout" || reason === "SuddenDeathTimeout";
 
     return (
         <AnimatePresence>
@@ -250,7 +242,7 @@ export function VictoryModal({
 
                         <CardContent className="space-y-5">
                             {/* Side-by-side stats comparison */}
-                            {!hideCompetitiveStats && (
+                            {!isTimeout && (
                                 <div className="space-y-2">
                                     <div className="grid grid-cols-3 gap-2 text-center text-xs text-zinc-500 font-mono">
                                         <span className="text-blue-400">YOU</span>
@@ -261,8 +253,8 @@ export function VictoryModal({
                                         <ComparisonRow
                                             icon={<Gauge className="w-3.5 h-3.5" />}
                                             label="Score"
-                                            myVal={formatScore(myScore)}
-                                            oppVal={formatScore(-myScore)}
+                                            myVal={myScore >= 0 ? `+${myScore.toFixed(3)}` : myScore.toFixed(3)}
+                                            oppVal={(-myScore) >= 0 ? `+${(-myScore).toFixed(3)}` : (-myScore).toFixed(3)}
                                             myBetter={myScore > 0}
                                             oppBetter={myScore < 0}
                                         />
@@ -369,16 +361,15 @@ function ComparisonRow({
     myBetter?: boolean;
     oppBetter?: boolean;
 }) {
-    const comparable = typeof myVal === "number" && typeof oppVal === "number";
-    const resolvedMyBetter = myBetter ?? (comparable ? myVal > oppVal : false);
-    const resolvedOppBetter = oppBetter ?? (comparable ? oppVal > myVal : false);
+    const _myBetter = myBetter !== undefined ? myBetter : (typeof myVal === 'number' && typeof oppVal === 'number' && myVal > oppVal);
+    const _oppBetter = oppBetter !== undefined ? oppBetter : (typeof myVal === 'number' && typeof oppVal === 'number' && oppVal > myVal);
 
     return (
         <div className="grid grid-cols-3 gap-2 items-center">
             <div className={cn(
                 "bg-white/5 rounded-lg px-3 py-2 text-center font-mono text-lg",
-                resolvedMyBetter && "text-emerald-400",
-                !resolvedMyBetter && "text-white"
+                _myBetter && "text-emerald-400",
+                !_myBetter && "text-white"
             )}>
                 {myVal}
             </div>
@@ -388,8 +379,8 @@ function ComparisonRow({
             </div>
             <div className={cn(
                 "bg-white/5 rounded-lg px-3 py-2 text-center font-mono text-lg",
-                resolvedOppBetter && "text-emerald-400",
-                !resolvedOppBetter && "text-white"
+                _oppBetter && "text-emerald-400",
+                !_oppBetter && "text-white"
             )}>
                 {oppVal}
             </div>

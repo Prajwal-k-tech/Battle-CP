@@ -312,8 +312,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         revealMyShips,
                         revealOpponentGrid,
                         revealOpponentShips,
-                        // Swiss tiebreaker (server-computed, authoritative)
-                        gameTimeSecs: msg.time_taken_secs,
+                        // Swiss score (server-authoritative)
                         myScore: msg.winner_id === null
                             ? 0
                             : msg.winner_id === prev.playerId

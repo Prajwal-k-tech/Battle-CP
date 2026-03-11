@@ -15,9 +15,9 @@ pub async fn start_global_ticker(state: AppState) {
                 if game.created_at.elapsed() >= std::time::Duration::from_secs(300) { //if you waited for more than 5 minutes
                     game.status = GameStatus::Finished;
                     game.finished_at = Some(std::time::Instant::now());
-                    let _ = game.tx.send(GameEvent::Message(
-                        crate::game::build_game_over(game, None, "LobbyTimeout".to_string()),
-                    ));
+                    let go_msg = crate::game::build_game_over(game, None, "LobbyTimeout".to_string());
+                    game.game_over_msg = Some(go_msg.clone());
+                    let _ = game.tx.send(GameEvent::Message(go_msg));
                     tracing::info!("Game {:?} lobby timed out (5 min)", game.id);
                 }
             }
@@ -30,9 +30,9 @@ pub async fn start_global_ticker(state: AppState) {
                     if placement_start.elapsed() >= std::time::Duration::from_secs(600) {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let _ = game.tx.send(GameEvent::Message(
-                            crate::game::build_game_over(game, None, "PlacementTimeout".to_string()),
-                        ));
+                        let go_msg = crate::game::build_game_over(game, None, "PlacementTimeout".to_string());
+                        game.game_over_msg = Some(go_msg.clone());
+                        let _ = game.tx.send(GameEvent::Message(go_msg));
                         tracing::info!("Game {:?} placement timed out (10 min)", game.id);
                     }
                 }
@@ -98,17 +98,17 @@ pub async fn start_global_ticker(state: AppState) {
                                 game.status = GameStatus::Finished;
                                 game.finished_at = Some(std::time::Instant::now());
                                 let winner = Some(game.player1.id);
-                                let _ = game.tx.send(GameEvent::Message(
-                                    crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string()),
-                                ));
+                                let go_msg = crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string());
+                                game.game_over_msg = Some(go_msg.clone());
+                                let _ = game.tx.send(GameEvent::Message(go_msg));
                             }
                             TiebreakResult::Player2Wins => {
                                 game.status = GameStatus::Finished;
                                 game.finished_at = Some(std::time::Instant::now());
                                 let winner = game.player2.as_ref().map(|p| p.id);
-                                let _ = game.tx.send(GameEvent::Message(
-                                    crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string()),
-                                ));
+                                let go_msg = crate::game::build_game_over(game, winner, "Timeout - More ships remaining".to_string());
+                                game.game_over_msg = Some(go_msg.clone());
+                                let _ = game.tx.send(GameEvent::Message(go_msg));
                             }
                             TiebreakResult::SuddenDeath => {
                                 // Sudden Death: first player to land a HIT wins.
@@ -130,9 +130,9 @@ pub async fn start_global_ticker(state: AppState) {
                     {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let _ = game.tx.send(GameEvent::Message(
-                            crate::game::build_game_over(game, None, "SuddenDeathTimeout".to_string()),
-                        ));
+                        let go_msg = crate::game::build_game_over(game, None, "SuddenDeathTimeout".to_string());
+                        game.game_over_msg = Some(go_msg.clone());
+                        let _ = game.tx.send(GameEvent::Message(go_msg));
                         tracing::info!("Game {:?} sudden death timed out (10 min)", game.id);
                     }
                 }

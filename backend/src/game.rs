@@ -16,6 +16,7 @@ impl Game {
             placement_started_at: None,
             game_started_at: None,
             finished_at: None,
+            game_over_msg: None,
             tx,
         }
     }
@@ -276,24 +277,6 @@ pub fn build_game_over(
     winner_id: Option<Uuid>,
     reason: String,
 ) -> crate::protocol::ServerMessage {
-    // --- Swiss tiebreaker scores (server is the single source of truth) ---
-    let game_duration = game.config.game_duration_secs;
-    // How many seconds of combat actually elapsed, clamped to the configured duration.
-    let time_taken_secs = game
-        .game_started_at
-        .map(|s| s.elapsed().as_secs().min(game_duration))
-        .unwrap_or(game_duration);
-
-    // winner_score ∈ [0,1]:  1 = won instantly, 0 = won/lost at full time
-    // loser_score  ∈ [-1,0]: mirror-negative of winner_score
-    // Both are 0.0 for draws (no winner).
-    let (winner_score, loser_score) = if winner_id.is_some() && game_duration > 0 {
-        let w = (game_duration - time_taken_secs) as f64 / game_duration as f64;
-        (w, -w)
-    } else {
-        (0.0_f64, 0.0_f64)
-    };
-
     let (p2_sunk, p2_hit, p2_solved, p2_grid, p2_ships) = game
         .player2
         .as_ref()
@@ -307,6 +290,18 @@ pub fn build_game_over(
             )
         })
         .unwrap_or_else(|| (0, 0, 0, vec![vec!["empty".to_string(); 10]; 10], vec![]));
+
+    let game_duration = game.config.game_duration_secs;
+    let time_taken_secs = game
+        .game_started_at
+        .map(|s| s.elapsed().as_secs().min(game_duration))
+        .unwrap_or(game_duration);
+    let (winner_score, loser_score) = if winner_id.is_some() && game_duration > 0 {
+        let w = (game_duration - time_taken_secs) as f64 / game_duration as f64;
+        (w, -w)
+    } else {
+        (0.0, 0.0)
+    };
 
     crate::protocol::ServerMessage::GameOver {
         winner_id,

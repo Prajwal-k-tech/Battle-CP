@@ -111,13 +111,8 @@ pub enum ServerMessage {
         p1_ships: Vec<RevealedShip>,
         p2_grid: Vec<Vec<String>>,
         p2_ships: Vec<RevealedShip>,
-        // How long the combat phase lasted (clamped to game_duration_secs).
-        // Used as the authoritative source for Swiss-style tiebreaker scores.
+        // Swiss tiebreaker scores (server-authoritative)
         time_taken_secs: u64,
-        // Swiss tiebreaker scores (server-computed, single source of truth):
-        //   winner_score = (game_length - time_taken) / game_length  ∈ [0, 1]
-        //   loser_score  = (time_taken - game_length) / game_length  ∈ [-1, 0]
-        // Both are 0.0 when there is no winner (draw / timeout).
         winner_score: f64,
         loser_score: f64,
     },

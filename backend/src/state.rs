@@ -114,6 +114,8 @@ pub struct Game {
     #[serde(skip)]
     pub finished_at: Option<std::time::Instant>, // For auto-cleanup
     #[serde(skip)]
+    pub game_over_msg: Option<crate::protocol::ServerMessage>, // Cached for reconnect replay
+    #[serde(skip)]
     pub tx: broadcast::Sender<GameEvent>,
 }
 

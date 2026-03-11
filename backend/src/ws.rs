@@ -232,8 +232,26 @@ async fn handle_client_message(
             *player_id = Some(pid);
             let mut games = state.games.write().await;
             if let Some(game) = games.get_mut(&game_id) {
-                // Check if game is finished - reject all join attempts
+                // Check if game is finished - allow original participants to rejoin and see results
                 if game.status == crate::state::GameStatus::Finished {
+                    let is_p1 = game.player1.id == pid;
+                    let is_p2 = game.player2.as_ref().map(|p| p.id) == Some(pid);
+                    if is_p1 || is_p2 {
+                        if let Some(go_msg) = &game.game_over_msg {
+                            // Send GameJoined first so frontend sets playerId before processing GameOver
+                            return vec![
+                                ServerMessage::GameJoined {
+                                    game_id,
+                                    player_id: pid,
+                                    difficulty: game.config.difficulty,
+                                    difficulty_mode: game.config.difficulty_mode.clone(),
+                                    max_heat: game.config.heat_threshold,
+                                    max_vetoes: game.config.max_vetoes,
+                                },
+                                go_msg.clone(),
+                            ];
+                        }
+                    }
                     return vec![ServerMessage::Error {
                         message: "Game has already ended".to_string(),
                     }];
@@ -860,18 +878,18 @@ async fn handle_client_message(
                     // In SuddenDeath, the SD path below always takes priority
                     // to prevent sending two GameOver messages.
                     if all_sunk && !is_sudden_death {
-                        let _ = game.tx.send(crate::state::GameEvent::Message(
-                            crate::game::build_game_over(game, Some(pid), "AllShipsSunk".to_string()),
-                        ));
+                        let go_msg = crate::game::build_game_over(game, Some(pid), "AllShipsSunk".to_string());
+                        game.game_over_msg = Some(go_msg.clone());
+                        let _ = game.tx.send(crate::state::GameEvent::Message(go_msg));
                     }
 
                     // SUDDEN DEATH: First hit wins!
                     if is_sudden_death && result == "Hit" {
                         game.status = GameStatus::Finished;
                         game.finished_at = Some(std::time::Instant::now());
-                        let _ = game.tx.send(crate::state::GameEvent::Message(
-                            crate::game::build_game_over(game, Some(pid), "SuddenDeath - First hit wins!".to_string()),
-                        ));
+                        let go_msg = crate::game::build_game_over(game, Some(pid), "SuddenDeath - First hit wins!".to_string());
+                        game.game_over_msg = Some(go_msg.clone());
+                        let _ = game.tx.send(crate::state::GameEvent::Message(go_msg));
                     }
 
                     // Bug 9 fix: Don't return ShotResult directly — broadcast handles it
