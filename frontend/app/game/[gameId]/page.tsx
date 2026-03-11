@@ -377,6 +377,8 @@ function GameContent({
                         myShips={gameState.revealMyShips}
                         opponentGrid={gameState.revealOpponentGrid}
                         opponentShips={gameState.revealOpponentShips}
+                        gameTimeSecs={gameState.gameTimeSecs}
+                        myScore={gameState.myScore}
                     />
                 )}
             </main>

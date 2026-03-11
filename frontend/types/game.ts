@@ -70,6 +70,10 @@ export interface GameState {
     opponentCellsHit: number;
     myCellsHit: number;
 
+    // Swiss tiebreaker (from GameOver, server-computed)
+    gameTimeSecs: number | null;  // seconds the combat phase lasted
+    myScore: number | null;       // winner: (L-t)/L ∈ [0,1]  |  loser: (t-L)/L ∈ [-1,0]
+
     // Error
     lastError: string | null;
 
@@ -121,6 +125,9 @@ export const initialGameState: GameState = {
     opponentProblemsSolved: 0,
     opponentCellsHit: 0,
     myCellsHit: 0,
+
+    gameTimeSecs: null,
+    myScore: null,
 
     lastError: null,
     difficulty: 800,
@@ -180,6 +187,10 @@ export type ServerMessage =
         p1_ships: RevealedShip[];
         p2_grid: string[][];
         p2_ships: RevealedShip[];
+        // Swiss tiebreaker (server-computed, authoritative)
+        time_taken_secs: number;
+        winner_score: number;
+        loser_score: number;
     }
 
     // Error
