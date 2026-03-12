@@ -46,7 +46,8 @@ pub async fn start_global_ticker(state: AppState) {
             // Placement timeout: 10 minutes from when placement actually started (P2 joined).
             // Using placement_started_at (not created_at) guarantees a full 10 minutes
             // regardless of how long the lobby waited for P2.
-            if game.status == GameStatus::PlacingShips {
+            // Also covers Initializing (both placed, CF fetch in progress) — same timeout.
+            if game.status == GameStatus::PlacingShips || game.status == GameStatus::Initializing {
                 if let Some(placement_start) = game.placement_started_at {
                     if placement_start.elapsed() >= std::time::Duration::from_secs(600) {
                         game.status = GameStatus::Finished;
@@ -230,8 +231,8 @@ pub async fn start_global_ticker(state: AppState) {
                 } else if game.status == GameStatus::Waiting {
                     // If waiting for P2, keep only if within threshold
                     game.created_at.elapsed() < waiting_cleanup_threshold
-                } else if game.status == GameStatus::PlacingShips {
-                    // If stuck in placement phase, clean up after threshold from when placement started
+                } else if game.status == GameStatus::PlacingShips || game.status == GameStatus::Initializing {
+                    // If stuck in placement/init phase, clean up after threshold from when placement started
                     game.placement_started_at
                         .map(|ps| ps.elapsed() < placing_cleanup_threshold)
                         .unwrap_or_else(|| game.created_at.elapsed() < placing_cleanup_threshold)

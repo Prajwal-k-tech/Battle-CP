@@ -315,9 +315,11 @@ function GameContent({
                             <div className="flex flex-col items-center gap-4">
                                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
                                 <span className="text-zinc-400">
-                                    {gameState.opponentShipsPlaced
-                                        ? "Starting battle..."
-                                        : "Waiting for opponent to deploy..."}
+                                    {gameState.status === "Initializing"
+                                        ? "Setting up battle..."
+                                        : gameState.opponentShipsPlaced
+                                            ? "Starting battle..."
+                                            : "Waiting for opponent to deploy..."}
                                 </span>
                             </div>
                         )}
@@ -344,6 +346,7 @@ function GameContent({
                     <ProblemPanel
                         cfHandle={cfHandle}
                         isLocked={gameState.isLocked}
+                        isVerifying={gameState.isVerifying}
                         difficulty={gameState.difficulty}
                         vetoesRemaining={gameState.vetoesRemaining}
                         maxVetoes={gameState.maxVetoes}

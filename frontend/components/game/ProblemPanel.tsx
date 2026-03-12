@@ -9,6 +9,7 @@ import { toast } from "sonner";
 interface ProblemPanelProps {
     cfHandle: string;
     isLocked: boolean;
+    isVerifying: boolean;
     difficulty: number;
     vetoesRemaining: number;
     maxVetoes: number;
@@ -26,6 +27,7 @@ import { useSound } from "@/context/SoundContext";
 
 export function ProblemPanel({
     isLocked,
+    isVerifying,
     vetoesRemaining,
     maxVetoes,
     vetoTimeRemaining,
@@ -36,7 +38,6 @@ export function ProblemPanel({
     onSolve,
     onVeto,
 }: ProblemPanelProps) {
-    const [verifying, setVerifying] = useState(false);
     const [verifyCooldown, setVerifyCooldown] = useState(0);
     const [localVetoTime, setLocalVetoTime] = useState<number | null>(null);
     const { playAlarm, playInvalid: playVeto } = useSound();
@@ -52,12 +53,17 @@ export function ProblemPanel({
     useEffect(() => {
         if (vetoTimeRemaining !== null && vetoTimeRemaining > 0) {
             setLocalVetoTime(vetoTimeRemaining);
+        } else {
+            setLocalVetoTime(null);
         }
     }, [vetoTimeRemaining]);
 
-    // Local veto countdown
+    // Local veto countdown — smooth decrement between server ticks.
+    // Re-runs when lock state changes OR when a new veto timer starts (localVetoTime
+    // transitions from null → a number while still locked).
+    const vetoActive = isLocked && localVetoTime !== null && localVetoTime > 0;
     useEffect(() => {
-        if (!isLocked || localVetoTime === null) return;
+        if (!vetoActive) return;
 
         const timer = setInterval(() => {
             setLocalVetoTime(prev => {
@@ -70,27 +76,20 @@ export function ProblemPanel({
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [isLocked]); // Only re-run when lock state changes
+    }, [vetoActive]);
 
     // Reset state when unlocked
     useEffect(() => {
         if (!isLocked) {
             setLocalVetoTime(null);
             setVerifyCooldown(0);
-            setVerifying(false);
         }
     }, [isLocked]);
 
-    const handleVerify = async () => {
-        if (!activeProblemContestId || !activeProblemIndex || verifyCooldown > 0) return;
-        setVerifying(true);
+    const handleVerify = () => {
+        if (!activeProblemContestId || !activeProblemIndex || verifyCooldown > 0 || isVerifying) return;
         setVerifyCooldown(10); // Match backend's 10-second cooldown
-        try {
-            onSolve(activeProblemContestId, activeProblemIndex);
-            toast.info("Verifying submission...");
-        } finally {
-            setTimeout(() => setVerifying(false), 3000);
-        }
+        onSolve(activeProblemContestId, activeProblemIndex);
     };
 
     // Countdown timer for verify cooldown
@@ -208,10 +207,10 @@ export function ProblemPanel({
                                     <div className="space-y-2">
                                         <Button
                                             onClick={handleVerify}
-                                            disabled={verifying || verifyCooldown > 0 || (localVetoTime !== null && localVetoTime > 0)}
+                                            disabled={isVerifying || verifyCooldown > 0 || (localVetoTime !== null && localVetoTime > 0)}
                                             className="w-full h-11 bg-green-600 hover:bg-green-500 font-bold"
                                         >
-                                            {verifying ? (
+                                            {isVerifying ? (
                                                 <>
                                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                                     Verifying...

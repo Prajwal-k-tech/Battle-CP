@@ -33,7 +33,9 @@ pub async fn ws_handler(
     Query(query): Query<WsQuery>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, game_id, query.player_id, state))
+    ws.max_frame_size(8192) // 8 KB max frame — prevents memory bombs
+        .max_message_size(16384) // 16 KB max message
+        .on_upgrade(move |socket| handle_socket(socket, game_id, query.player_id, state))
 }
 
 /// Main WebSocket connection handler
@@ -45,6 +47,14 @@ async fn handle_socket(
 ) {
     let (mut sender, mut receiver) = socket.split();
     let mut player_id: Option<Uuid> = initial_player_id;
+
+    // Per-connection, per-message-type rate limiters.
+    // Silently drops messages that arrive faster than the minimum interval.
+    let mut last_fire_at:  Option<std::time::Instant> = None;
+    let mut last_place_at: Option<std::time::Instant> = None;
+    let mut last_solve_at: Option<std::time::Instant> = None;
+    let mut last_veto_at:  Option<std::time::Instant> = None;
+    let mut last_join_at:  Option<std::time::Instant> = None;
 
     // Subscribe to game events
     let rx = {
@@ -84,6 +94,26 @@ async fn handle_socket(
                     Some(Ok(msg)) => {
                         if let Message::Text(text) = msg {
                             if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) {
+                                // Per-message-type rate limiting.
+                                // Fire: 200ms (fast action), others: 2s (prevents lock contention spam).
+                                macro_rules! rate_check {
+                                    ($tracker:expr, $min_ms:expr) => {
+                                        if let Some(last) = $tracker {
+                                            if last.elapsed() < std::time::Duration::from_millis($min_ms) {
+                                                continue; // Silently drop rapid spam
+                                            }
+                                        }
+                                        $tracker = Some(std::time::Instant::now());
+                                    };
+                                }
+                                match &client_msg {
+                                    ClientMessage::Fire { .. }       => { rate_check!(last_fire_at,  200);  }
+                                    ClientMessage::PlaceShips { .. } => { rate_check!(last_place_at, 2000); }
+                                    ClientMessage::SolveCP { .. }    => { rate_check!(last_solve_at, 2000); }
+                                    ClientMessage::Veto              => { rate_check!(last_veto_at,  2000); }
+                                    ClientMessage::JoinGame { .. }   => { rate_check!(last_join_at,  2000); }
+                                }
+
                                 let responses = handle_client_message(
                                     client_msg,
                                     &mut player_id,
@@ -92,7 +122,13 @@ async fn handle_socket(
                                 ).await;
 
                                 for resp in responses {
-                                    let resp_text = serde_json::to_string(&resp).unwrap();
+                                    let resp_text = match serde_json::to_string(&resp) {
+                                        Ok(t) => t,
+                                        Err(e) => {
+                                            tracing::error!("[WS] Failed to serialize response: {}", e);
+                                            continue;
+                                        }
+                                    };
                                     if sender.send(Message::Text(resp_text.into())).await.is_err() {
                                         tracing::warn!("[WS] Failed to send response, closing connection");
                                         break 'main_loop;
@@ -180,20 +216,22 @@ async fn handle_socket(
                                                 active_problem_index: p.active_problem.as_ref().map(|ap| ap.index.clone()),
                                                 active_problem_name: p.active_problem.as_ref().map(|ap| ap.name.clone()),
                                             };
-                                            let resp_text = serde_json::to_string(&update).unwrap();
-                                            if sender.send(Message::Text(resp_text.into())).await.is_err() {
-                                                tracing::warn!("[WS] Failed to send tick update, closing connection");
-                                                break 'main_loop;
+                                            if let Ok(resp_text) = serde_json::to_string(&update) {
+                                                if sender.send(Message::Text(resp_text.into())).await.is_err() {
+                                                    tracing::warn!("[WS] Failed to send tick update, closing connection");
+                                                    break 'main_loop;
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
                             crate::state::GameEvent::Message(msg) => {
-                                 let resp_text = serde_json::to_string(&msg).unwrap();
-                                 if sender.send(Message::Text(resp_text.into())).await.is_err() {
-                                     tracing::warn!("[WS] Failed to send broadcast message, closing connection");
-                                     break 'main_loop;
+                                 if let Ok(resp_text) = serde_json::to_string(&msg) {
+                                     if sender.send(Message::Text(resp_text.into())).await.is_err() {
+                                         tracing::warn!("[WS] Failed to send broadcast message, closing connection");
+                                         break 'main_loop;
+                                     }
                                  }
                             }
                         }
@@ -229,6 +267,16 @@ async fn handle_client_message(
             player_id: pid,
             cf_handle,
         } => {
+            // SECURITY: Lock player_id to the first JoinGame message.
+            // Subsequent JoinGame messages with a different player_id are rejected
+            // to prevent impersonation attacks.
+            if let Some(existing_pid) = *player_id {
+                if existing_pid != pid {
+                    return vec![ServerMessage::Error {
+                        message: "Player identity already established".to_string(),
+                    }];
+                }
+            }
             *player_id = Some(pid);
             let mut games = state.games.write().await;
             if let Some(game) = games.get_mut(&game_id) {
@@ -350,6 +398,7 @@ async fn handle_client_message(
 
                     // 4. Tell reconnecting player the opponent is here (Bug 2 fix)
                     if game.status == crate::state::GameStatus::PlacingShips
+                        || game.status == crate::state::GameStatus::Initializing
                         || game.status == crate::state::GameStatus::Playing
                         || game.status == crate::state::GameStatus::SuddenDeath
                     {
@@ -669,101 +718,26 @@ async fn handle_client_message(
 
             // THEN check if both ready and start game
             if both_ready {
-                // Set game status to Playing BEFORE broadcasting GameStart
-                game.status = crate::state::GameStatus::Playing;
-                game.game_started_at = Some(std::time::Instant::now());
+                // Mark as Initializing while we fetch CF solved sets.
+                // NOT Playing — the background ticker ignores Initializing games,
+                // so the game timer doesn't start counting down during the CF fetch.
+                game.status = crate::state::GameStatus::Initializing;
+                // DON'T set game_started_at yet — timer starts after CF fetch completes.
 
-                // Fetch both players' solved sets from CF API (one-time at game start).
-                // This removes the per-lock 10-min cached call.
                 let p1_handle = game.player1.cf_handle.clone();
                 let p2_handle = game.player2.as_ref().map(|p| p.cf_handle.clone()).unwrap_or_default();
-                let tx = game.tx.clone();
 
-                // Drop the write lock to do async I/O
-                drop(games);
+                // Spawn a background task for the CF fetch so we don't block
+                // this WS connection's message loop (ticks keep flowing).
+                let state2 = state.clone();
+                let gid = game_id;
+                tokio::spawn(async move {
+                    init_game_from_cf(state2, gid, p1_handle, p2_handle).await;
+                });
 
-                let ((p1_set, p1_ok), (p2_set, p2_ok)) = tokio::join!(
-                    state.cf_client.fetch_player_solved_with_retry(&p1_handle, 3),
-                    state.cf_client.fetch_player_solved_with_retry(&p2_handle, 3),
-                );
-
-                // Re-acquire the lock and store solved sets
-                let mut games = state.games.write().await;
-                if let Some(game) = games.get_mut(&game_id) {
-                    game.player1.solved_set = p1_set;
-                    game.player1.solved_set_fetched = p1_ok;
-                    if let Some(ref mut p2) = game.player2 {
-                        p2.solved_set = p2_set;
-                        p2.solved_set_fetched = p2_ok;
-                    }
-                    tracing::info!(
-                        "Game {:?}: fetched solved sets (P1: {}{}, P2: {}{})",
-                        game_id,
-                        game.player1.solved_set.len(),
-                        if p1_ok { "" } else { " [FAILED]" },
-                        game.player2.as_ref().map(|p| p.solved_set.len()).unwrap_or(0),
-                        if p2_ok { "" } else { " [FAILED]" },
-                    );
-
-                    // Build shared problem queue from union of both solved sets.
-                    // Both players draw from the same pre-built queue in order.
-                    {
-                        let empty_set = std::collections::HashSet::new();
-                        let p2_solved = game.player2.as_ref()
-                            .map(|p| &p.solved_set)
-                            .unwrap_or(&empty_set);
-                        let queue = state.cf_client.build_shared_queue(
-                            game.config.difficulty,
-                            &game.config.difficulty_mode,
-                            &game.player1.solved_set,
-                            p2_solved,
-                            50,
-                        );
-                        game.problem_queue = queue.into_iter().map(|p| crate::state::AssignedProblem {
-                            contest_id: p.contest_id,
-                            index: p.index,
-                            name: p.name,
-                            rating: p.rating,
-                        }).collect();
-                        tracing::info!(
-                            "Game {:?}: built shared queue with {} problems",
-                            game_id,
-                            game.problem_queue.len(),
-                        );
-                    }
-
-                    // Get player for response
-                    let player = if is_player1 {
-                        &game.player1
-                    } else if let Some(ref p) = game.player2 {
-                        p
-                    } else {
-                        return vec![ServerMessage::Error {
-                            message: "Opponent left".to_string(),
-                        }];
-                    };
-
-                    // Broadcast GameStart to all players
-                    let _ = tx.send(crate::state::GameEvent::Message(ServerMessage::GameStart));
-
-                    return vec![ServerMessage::GameUpdate {
-                        status: "Playing".to_string(),
-                        is_active: true,
-                        heat: player.heat,
-                        is_locked: player.is_locked,
-                        time_remaining_secs: game.config.game_duration_secs,
-                        vetoes_remaining: game.config.max_vetoes.saturating_sub(player.vetoes_used),
-                        veto_time_remaining_secs: None,
-                        active_problem_contest_id: None,
-                        active_problem_index: None,
-                        active_problem_name: None,
-                    }];
-                }
-
-                // Game vanished while we were fetching — shouldn't happen
-                return vec![ServerMessage::Error {
-                    message: "Game ended during setup".to_string(),
-                }];
+                // Return immediately — the frontend shows "Initializing" / "Setting up battle..."
+                // until GameStart is broadcast by the spawned task.
+                return vec![];
             }
 
             // Only one player has placed — waiting for the other
@@ -1091,90 +1065,23 @@ async fn handle_client_message(
 
             let handle = player.cf_handle.clone();
             let locked_at = player.locked_at_unix;
+            let tx = game.tx.clone();
             drop(games); // Drop lock strictly here
 
-            let verify_result = state
-                .cf_client
-                .verify_submission(&handle, contest_id, &problem_index, locked_at)
-                .await;
+            // Broadcast VerifyPending so the frontend shows a spinner
+            let _ = tx.send(crate::state::GameEvent::Message(
+                ServerMessage::VerifyPending { player_id: pid },
+            ));
 
-            match verify_result {
-                Ok(true) => {
-                    // Re-acquire write lock to update state
-                    let mut games = state.games.write().await;
-                    if let Some(game) = games.get_mut(&game_id) {
-                        // Guard: game may have ended while the CF API call was in-flight
-                        // (opponent sank all ships, SD first-hit, or timeout occurred).
-                        // Discard the result — mutating dead game state is meaningless.
-                        if game.status == crate::state::GameStatus::Finished {
-                            return vec![];
-                        }
+            // Spawn a background task for the CF API call so this WS
+            // connection keeps processing ticks and broadcasts.
+            let state2 = state.clone();
+            let pidx = problem_index.clone();
+            tokio::spawn(async move {
+                verify_and_unlock(state2, game_id, pid, handle, contest_id, pidx, locked_at).await;
+            });
 
-                        let player = if game.player1.id == pid {
-                            &mut game.player1
-                        } else if let Some(ref mut p) = game.player2 {
-                            p
-                        } else {
-                            return vec![];
-                        };
-
-                        // Guard: player may have already been unlocked by the background
-                        // ticker racing with this response (unlikely but defensive)
-                        if !player.is_locked {
-                            return vec![];
-                        }
-
-                        // Add the just-solved problem to solved_set so it is never
-                        // re-assigned in future lock sessions during the same game.
-                        if let Some(ref ap) = player.active_problem {
-                            let key = format!("{}-{}", ap.contest_id, ap.index);
-                            player.solved_set.insert(key);
-                        }
-
-                        player.unlock_weapons();
-                        player.stats.problems_solved += 1;
-
-                        // Broadcast WeaponsUnlocked
-                        let _ = game.tx.send(crate::state::GameEvent::Message(
-                            ServerMessage::WeaponsUnlocked {
-                                player_id: pid,
-                                reason: "solved".to_string(),
-                            },
-                        ));
-
-                        let elapsed = game
-                            .game_started_at
-                            .map(|s| s.elapsed().as_secs())
-                            .unwrap_or(0);
-                        let remaining = game.config.game_duration_secs.saturating_sub(elapsed);
-
-                        vec![ServerMessage::GameUpdate {
-                            status: "Weapons Unlocked!".to_string(),
-                            is_active: true,
-                            heat: player.heat,
-                            is_locked: player.is_locked,
-                            time_remaining_secs: remaining,
-                            vetoes_remaining: game
-                                .config
-                                .max_vetoes
-                                .saturating_sub(player.vetoes_used),
-                            veto_time_remaining_secs: None,
-                            // active_problem is cleared by unlock_weapons(), so always None here
-                            active_problem_contest_id: None,
-                            active_problem_index: None,
-                            active_problem_name: None,
-                        }]
-                    } else {
-                        vec![]
-                    }
-                }
-                Ok(false) => vec![ServerMessage::Error {
-                    message: "Submission not accepted".to_string(),
-                }],
-                Err(e) => vec![ServerMessage::Error {
-                    message: e.to_string(),
-                }],
-            }
+            vec![]
         }
 
         ClientMessage::Veto => {
@@ -1280,6 +1187,244 @@ async fn handle_client_message(
                 active_problem_index: None,
                 active_problem_name: None,
             }]
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Spawned helpers — run in background so the WS loop stays responsive
+// ---------------------------------------------------------------------------
+
+/// Fetch both players' solved sets via the CF queue with retry,
+/// build the shared problem queue, then transition to Playing.
+///
+/// Runs as a `tokio::spawn`-ed task. Has a 90s timeout — if CF is
+/// completely unreachable for that long, the game is finished cleanly
+/// rather than leaving players staring at "Setting up battle..." for
+/// the full 10-min placement timeout.
+async fn init_game_from_cf(
+    state: AppState,
+    game_id: uuid::Uuid,
+    p1_handle: String,
+    p2_handle: String,
+) {
+    // 90s timeout — if CF is completely down, abort cleanly.
+    let fetch_result = tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        async {
+            let p1 = fetch_solved_with_retry(&state, &p1_handle).await;
+            let p2 = fetch_solved_with_retry(&state, &p2_handle).await;
+            (p1, p2)
+        },
+    ).await;
+
+    let (p1_set, p2_set) = match fetch_result {
+        Ok(sets) => sets,
+        Err(_) => {
+            // Timeout — CF has been unreachable for 90s. Finish the game cleanly.
+            tracing::error!("init_game_from_cf: 90s timeout fetching solved sets for game {:?}", game_id);
+            let mut games = state.games.write().await;
+            if let Some(game) = games.get_mut(&game_id) {
+                if game.status == crate::state::GameStatus::Initializing {
+                    game.status = crate::state::GameStatus::Finished;
+                    game.finished_at = Some(std::time::Instant::now());
+                    let go_msg = crate::game::build_game_over(game, None, "CFUnavailable".to_string());
+                    game.game_over_msg = Some(go_msg.clone());
+                    let _ = game.tx.send(crate::state::GameEvent::Message(go_msg));
+                }
+            }
+            return;
+        }
+    };
+
+    // Re-acquire the lock and store results
+    let mut games = state.games.write().await;
+    let game = match games.get_mut(&game_id) {
+        Some(g) => g,
+        None => {
+            tracing::warn!("init_game_from_cf: game {:?} vanished", game_id);
+            return;
+        }
+    };
+
+    // Guard: game was cleaned up or finished while we were fetching
+    if game.status != crate::state::GameStatus::Initializing {
+        tracing::info!(
+            "init_game_from_cf: game {:?} no longer Initializing (status={:?}), aborting",
+            game_id, game.status
+        );
+        return;
+    }
+
+    game.player1.solved_set = p1_set;
+    if let Some(ref mut p2) = game.player2 {
+        p2.solved_set = p2_set;
+    }
+    tracing::info!(
+        "Game {:?}: fetched solved sets (P1: {}, P2: {})",
+        game_id,
+        game.player1.solved_set.len(),
+        game.player2.as_ref().map(|p| p.solved_set.len()).unwrap_or(0),
+    );
+
+    // Build shared problem queue from union of both solved sets
+    {
+        let empty_set = std::collections::HashSet::new();
+        let p2_solved = game.player2.as_ref()
+            .map(|p| &p.solved_set)
+            .unwrap_or(&empty_set);
+        let queue = state.cf_client.build_shared_queue(
+            game.config.difficulty,
+            &game.config.difficulty_mode,
+            &game.player1.solved_set,
+            p2_solved,
+            50,
+        );
+        game.problem_queue = queue.into_iter().map(|p| crate::state::AssignedProblem {
+            contest_id: p.contest_id,
+            index: p.index,
+            name: p.name,
+            rating: p.rating,
+        }).collect();
+        tracing::info!(
+            "Game {:?}: built shared queue with {} problems",
+            game_id, game.problem_queue.len(),
+        );
+    }
+
+    // CF data fetched and queue built — NOW start the game.
+    game.status = crate::state::GameStatus::Playing;
+    game.game_started_at = Some(std::time::Instant::now());
+
+    // Broadcast GameStart to both players
+    let _ = game.tx.send(crate::state::GameEvent::Message(ServerMessage::GameStart));
+}
+
+/// Fetch a player's solved set via the CF queue with infinite retry.
+/// Retries with exponential backoff (capped at 8s) until success.
+/// The placement timeout (10 min) is the ultimate safety net.
+async fn fetch_solved_with_retry(state: &AppState, handle: &str) -> std::collections::HashSet<String> {
+    let mut attempt: u32 = 0;
+    loop {
+        match state.cf_queue.fetch_solved_set(handle).await {
+            Ok(set) => return set,
+            Err(e) => {
+                attempt += 1;
+                let backoff = std::time::Duration::from_secs(2u64.saturating_pow(attempt).min(8));
+                tracing::warn!(
+                    "fetch_solved_with_retry('{}') attempt {} failed: {} — retrying in {:?}",
+                    handle, attempt, e, backoff
+                );
+                tokio::time::sleep(backoff).await;
+            }
+        }
+    }
+}
+
+/// Verify a submission via the CF queue and update game state.
+///
+/// Runs as a `tokio::spawn`-ed task so the WS loop stays responsive.
+/// Broadcasts VerifyResult on failure, WeaponsUnlocked on success.
+async fn verify_and_unlock(
+    state: AppState,
+    game_id: uuid::Uuid,
+    pid: uuid::Uuid,
+    handle: String,
+    contest_id: i32,
+    problem_index: String,
+    locked_at: Option<u64>,
+) {
+    // Route through the global CF queue (high priority) with transparent retry.
+    // Up to 3 attempts with 3s backoff between retries — absorbs transient CF
+    // blips so the player just sees a spinner instead of an error + 10s wait.
+    let mut result = Err("no attempt made".to_string());
+    for attempt in 0..3u32 {
+        result = state.cf_queue.verify_submission(
+            &handle, contest_id, &problem_index, locked_at,
+        ).await;
+        match &result {
+            Ok(_) => break,           // Got a definite answer (true or false)
+            Err(e) => {
+                if attempt < 2 {
+                    tracing::warn!(
+                        "verify_and_unlock: attempt {} failed for {:?}: {} — retrying",
+                        attempt + 1, pid, e
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                }
+            }
+        }
+    }
+
+    match result {
+        Ok(true) => {
+            // Re-acquire write lock to update state
+            let mut games = state.games.write().await;
+            let game = match games.get_mut(&game_id) {
+                Some(g) => g,
+                None => return,
+            };
+
+            // Guard: game may have ended while the CF API call was in-flight
+            if game.status == crate::state::GameStatus::Finished {
+                return;
+            }
+
+            let player = if game.player1.id == pid {
+                &mut game.player1
+            } else if let Some(ref mut p) = game.player2 {
+                p
+            } else {
+                return;
+            };
+
+            // Guard: player may have been unlocked by veto expiry racing with this
+            if !player.is_locked {
+                return;
+            }
+
+            // Add to solved_set so it's never re-assigned this game
+            if let Some(ref ap) = player.active_problem {
+                let key = format!("{}-{}", ap.contest_id, ap.index);
+                player.solved_set.insert(key);
+            }
+
+            player.unlock_weapons();
+            player.stats.problems_solved += 1;
+
+            // Broadcast WeaponsUnlocked
+            let _ = game.tx.send(crate::state::GameEvent::Message(
+                ServerMessage::WeaponsUnlocked {
+                    player_id: pid,
+                    reason: "solved".to_string(),
+                },
+            ));
+        }
+        Ok(false) => {
+            // Not accepted — broadcast result so frontend shows feedback
+            let games = state.games.read().await;
+            if let Some(game) = games.get(&game_id) {
+                let _ = game.tx.send(crate::state::GameEvent::Message(
+                    ServerMessage::VerifyResult {
+                        player_id: pid,
+                        accepted: false,
+                        message: "Submission not accepted yet. Solve it on Codeforces first!".to_string(),
+                    },
+                ));
+            }
+        }
+        Err(e) => {
+            // CF API error — broadcast so player knows to retry
+            let games = state.games.read().await;
+            if let Some(game) = games.get(&game_id) {
+                let _ = game.tx.send(crate::state::GameEvent::Message(
+                    ServerMessage::VerifyResult {
+                        player_id: pid,
+                        accepted: false,
+                        message: format!("Codeforces API error: {}. Please retry.", e),
+                    },
+                ));
+            }
         }
     }
 }

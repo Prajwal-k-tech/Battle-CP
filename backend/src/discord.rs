@@ -270,12 +270,12 @@ fn build_embed(rep: &MatchReport) -> serde_json::Value {
         "fields": [
             {
                 "name": format!("{} — {}", lft_label, lft_handle),
-                "value": format!("**Score:** `+{:.2} pts`", lft_score),
+                "value": format!("**Time Penalty:** `+{:.2} pts`", lft_score),
                 "inline": true
             },
             {
                 "name": format!("{} — {}", rgt_label, rgt_handle),
-                "value": format!("**Score:** `+{:.2} pts`", rgt_score),
+                "value": format!("**Time Penalty:** `+{:.2} pts`", rgt_score),
                 "inline": true
             },
             { "name": "\u{200b}", "value": "\u{200b}", "inline": false },
@@ -312,29 +312,99 @@ fn build_embed(rep: &MatchReport) -> serde_json::Value {
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-/// Fire-and-forget: extract match data and spawn a background webhook POST.
-/// Safe to call while holding the games write-lock — `tokio::spawn` is non-blocking.
-pub fn log_game(game: &Game, winner_id: Option<Uuid>, reason: &str) {
-    let report = MatchReport::from_game(game, winner_id, reason.to_string());
-    tokio::spawn(post_report(report));
+/// Shared HTTP client — avoids creating a new client per request.
+static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+fn get_client() -> &'static reqwest::Client {
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_default()
+    })
 }
 
-/// POST the match report embed to the Discord webhook.
-/// Reads `DISCORD_WEBHOOK_URL` from the environment; silently skips if unset.
-pub async fn post_report(report: MatchReport) {
+/// Bounded channel for serializing webhook POSTs (prevents burst flooding Discord).
+static QUEUE_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<MatchReport>> =
+    std::sync::OnceLock::new();
+
+/// Initialize the webhook worker. Call once at startup.
+pub fn init_worker() {
+    let (tx, rx) = tokio::sync::mpsc::channel::<MatchReport>(64);
+    QUEUE_TX.set(tx).ok();
+    tokio::spawn(webhook_worker(rx));
+}
+
+/// Background worker: drains the queue and POSTs one report at a time.
+async fn webhook_worker(mut rx: tokio::sync::mpsc::Receiver<MatchReport>) {
+    while let Some(report) = rx.recv().await {
+        post_report_with_retry(&report).await;
+    }
+}
+
+/// Fire-and-forget: extract match data and enqueue for the webhook worker.
+/// Safe to call while holding the games write-lock — enqueue is non-blocking.
+pub fn log_game(game: &Game, winner_id: Option<Uuid>, reason: &str) {
+    let report = MatchReport::from_game(game, winner_id, reason.to_string());
+    if let Some(tx) = QUEUE_TX.get() {
+        // try_send: don't block the game loop; drop report if queue full (unlikely at 64)
+        if tx.try_send(report).is_err() {
+            tracing::warn!("Discord webhook queue full — dropping match report");
+        }
+    }
+}
+
+/// POST with up to 3 retries, respecting Discord 429 Retry-After header.
+async fn post_report_with_retry(report: &MatchReport) {
     let url = match std::env::var("DISCORD_WEBHOOK_URL") {
         Ok(u) if !u.is_empty() => u,
         _ => return,
     };
 
-    let embed = build_embed(&report);
+    let embed = build_embed(report);
     let body = serde_json::json!({
         "username": "Battle CP",
         "embeds": [embed]
     });
 
-    let client = reqwest::Client::new();
-    if let Err(e) = client.post(&url).json(&body).send().await {
-        tracing::warn!("Discord webhook POST failed: {}", e);
+    let client = get_client();
+    for attempt in 0..3u32 {
+        match client.post(&url).json(&body).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    return; // Done
+                }
+                if resp.status().as_u16() == 429 {
+                    // Rate limited — respect Retry-After header
+                    let retry_after = resp
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(2.0);
+                    let wait_ms = (retry_after * 1000.0) as u64 + 100; // small padding
+                    tracing::warn!(
+                        "Discord 429 rate-limited (attempt {}), retrying in {}ms",
+                        attempt + 1,
+                        wait_ms
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                    continue;
+                }
+                // Other non-success status
+                tracing::warn!(
+                    "Discord webhook returned {} (attempt {})",
+                    resp.status(),
+                    attempt + 1
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Discord webhook POST failed (attempt {}): {}", attempt + 1, e);
+            }
+        }
+        // Exponential backoff for non-429 failures
+        let backoff = std::time::Duration::from_millis(500 * 2u64.pow(attempt));
+        tokio::time::sleep(backoff).await;
     }
+    tracing::error!("Discord webhook failed after 3 retries — match report lost");
 }

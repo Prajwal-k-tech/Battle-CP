@@ -8,6 +8,8 @@ use uuid::Uuid;
 pub struct AppState {
     pub games: Arc<RwLock<HashMap<Uuid, Game>>>,
     pub cf_client: crate::cf_client::CFClient,
+    /// Global CF API queue — routes all live API calls through a single rate-limited worker.
+    pub cf_queue: crate::cf_client::CfApiQueue,
     pub rate_limiter: Arc<Mutex<HashMap<String, (std::time::Instant, u32)>>>, //a rate limiter for game creation 
 }
 
@@ -22,6 +24,7 @@ impl AppState {
         Self {
             games: Arc::new(RwLock::new(HashMap::new())),
             cf_client: crate::cf_client::CFClient::new(),
+            cf_queue: crate::cf_client::CfApiQueue::spawn(),
             rate_limiter: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -128,11 +131,12 @@ pub struct Game {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum GameStatus {
-    Waiting,      // Waiting for P2 to join
-    PlacingShips, // Both players joined, placing ships
-    Playing,      // Both placed ships, combat phase
-    SuddenDeath,  // Tiebreaker: first hit wins
-    Finished,     // Game over
+    Waiting,       // Waiting for P2 to join
+    PlacingShips,  // Both players joined, placing ships
+    Initializing,  // Both placed ships, fetching CF data before combat starts
+    Playing,       // Both placed ships, combat phase
+    SuddenDeath,   // Tiebreaker: first hit wins
+    Finished,      // Game over
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -163,10 +167,6 @@ pub struct Player {
     /// Format: "contestId-index" (e.g., "1234-A").
     #[serde(skip)]
     pub solved_set: HashSet<String>,
-    /// Whether `solved_set` was successfully fetched from CF API.
-    /// When false, problem assignment is deferred until a background retry succeeds.
-    #[serde(skip)]
-    pub solved_set_fetched: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

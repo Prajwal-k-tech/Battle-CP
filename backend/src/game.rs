@@ -5,7 +5,7 @@ use uuid::Uuid; //a custom type for unique ids
 #[allow(unused)]
 impl Game {
     pub fn new(player1_id: Uuid, player1_handle: String, config: GameConfig) -> Self {
-        let (tx, _) = tokio::sync::broadcast::channel(500);
+        let (tx, _) = tokio::sync::broadcast::channel(2000);
         Self {
             id: Uuid::new_v4(),
             player1: Player::new(player1_id, player1_handle),
@@ -85,7 +85,6 @@ impl Player {
             active_problem: None,
             locked_at_unix: None,
             solved_set: std::collections::HashSet::new(),
-            solved_set_fetched: false,
         }
     }
 

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trophy, Skull, Home, RotateCcw, Target, Brain, Ship, Gauge } from "lucide-react";
+import { Trophy, Skull, Home, RotateCcw, Target, Brain, Ship, Clock } from "lucide-react";
 import Link from "next/link";
 import { RevealedShip } from "@/types/game";
 import { useSound } from "@/context/SoundContext";
@@ -251,16 +251,6 @@ export function VictoryModal({
                                         <span></span>
                                         <span className="text-red-400">OPPONENT</span>
                                     </div>
-                                    {myScore != null && opponentScore != null && (
-                                        <ComparisonRow
-                                            icon={<Gauge className="w-3.5 h-3.5" />}
-                                            label="Score"
-                                            myVal={`+${myScore.toFixed(1)}`}
-                                            oppVal={`+${opponentScore.toFixed(1)}`}
-                                            myBetter={myScore > opponentScore}
-                                            oppBetter={opponentScore > myScore}
-                                        />
-                                    )}
                                     <ComparisonRow
                                         icon={<Target className="w-3.5 h-3.5" />}
                                         label="Hits"
@@ -279,6 +269,16 @@ export function VictoryModal({
                                         myVal={myStats.problemsSolved}
                                         oppVal={opponentStats.problemsSolved}
                                     />
+                                    {myScore != null && opponentScore != null && (
+                                        <ComparisonRow
+                                            icon={<Clock className="w-3.5 h-3.5" />}
+                                            label="Time Penalty"
+                                            myVal={`+${myScore.toFixed(1)}`}
+                                            oppVal={`+${opponentScore.toFixed(1)}`}
+                                            myBetter={myScore > opponentScore}
+                                            oppBetter={opponentScore > myScore}
+                                        />
+                                    )}
                                 </div>
                             )}
 

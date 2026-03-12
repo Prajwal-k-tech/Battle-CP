@@ -5,9 +5,14 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 use crate::state::DifficultyMode;
+
+/// Minimum interval between any two Codeforces API requests.
+/// CF's public limit is ~1 request per 2 seconds; violating it causes 429 / temporary bans.
+/// 2.1s adds a 100ms buffer against clock-drift edge cases.
+const CF_RATE_LIMIT_INTERVAL: Duration = Duration::from_millis(2100);
 
 // ---------------------------------------------------------------------------
 // Cache type aliases
@@ -215,6 +220,9 @@ impl CFClient {
             "https://codeforces.com/api/contest.standings?contestId={}&from=1&count=1",
             contest_id
         );
+        // Simple sleep for this rarely-hit endpoint (5-min cache covers normal use).
+        // Not routed through the queue because it returns a different type.
+        tokio::time::sleep(CF_RATE_LIMIT_INTERVAL).await;
         let resp = self
             .client
             .get(&url)
@@ -236,152 +244,6 @@ impl CFClient {
         }
 
         Ok(problems)
-    }
-
-    // -----------------------------------------------------------------------
-    // Submission verification  (live CF API – irreplaceable)
-    // -----------------------------------------------------------------------
-
-    pub async fn verify_submission(
-        &self,
-        handle: &str,
-        contest_id: i32,
-        index: &str,
-        locked_since_unix: Option<u64>,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let encoded_handle = urlencoding::encode(handle);
-        let url = format!(
-            "https://codeforces.com/api/user.status?handle={}&from=1&count=5",
-            encoded_handle
-        );
-
-        // One transparent retry with 2s delay so transient CF 503s don't force
-        // the player to wait the full 10-second cooldown and retry manually.
-        let mut last_err: Option<Box<dyn Error + Send + Sync>> = None;
-        for attempt in 0..2u32 {
-            if attempt > 0 {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                tracing::warn!(
-                    "verify_submission('{}', {}-{}) retry after transient error",
-                    handle, contest_id, index
-                );
-            }
-            let result = self.client.get(&url).send().await
-                .and_then(|r| Ok(r))
-                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
-
-            let http_resp = match result {
-                Ok(r) => r,
-                Err(e) => { last_err = Some(e); continue; }
-            };
-            let resp = match http_resp.json::<UserStatusResponse>().await {
-                Ok(r) => r,
-                Err(e) => { last_err = Some(Box::new(e)); continue; }
-            };
-
-            if resp.status != "OK" {
-                last_err = Some("CF API returned non-OK status".into());
-                continue;
-            }
-
-            // Found a valid response — check submissions
-            for submission in resp.result {
-                if let Some(verdict) = submission.verdict {
-                    if verdict == "OK"
-                        && submission.problem.contest_id == Some(contest_id)
-                        && submission.problem.index == index
-                    {
-                        // SECURITY: reject pre-solved problems (30 s clock-skew tolerance)
-                        if let Some(lock_time) = locked_since_unix {
-                            if let Some(creation_time) = submission.creation_time_seconds {
-                                if (creation_time as u64) + 30 < lock_time {
-                                    continue;
-                                }
-                            }
-                        }
-                        return Ok(true);
-                    }
-                }
-            }
-            // Response was valid but problem not yet solved — no need to retry
-            return Ok(false);
-        }
-
-        // Both attempts failed with network/API errors
-        Err(last_err.unwrap_or_else(|| "Failed to fetch user status".into()))
-    }
-
-    // -----------------------------------------------------------------------
-    // Player solved-set  (live CF API – called once per game start)
-    // -----------------------------------------------------------------------
-
-    pub async fn fetch_player_solved(
-        &self,
-        handle: &str,
-    ) -> Result<HashSet<String>, Box<dyn Error + Send + Sync>> {
-        let encoded_handle = urlencoding::encode(handle);
-        let url = format!(
-            "https://codeforces.com/api/user.status?handle={}&from=1&count=5000",
-            encoded_handle
-        );
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await?
-            .json::<UserStatusResponse>()
-            .await?;
-
-        if resp.status != "OK" {
-            return Err("Failed to fetch user submissions".into());
-        }
-
-        let mut solved = HashSet::new();
-        for sub in resp.result {
-            if sub.verdict.as_deref() == Some("OK") {
-                if let Some(cid) = sub.problem.contest_id {
-                    solved.insert(format!("{}-{}", cid, sub.problem.index));
-                }
-            }
-        }
-
-        Ok(solved)
-    }
-
-    // -----------------------------------------------------------------------
-    // Player solved-set with retry  (robust fetch at game start)
-    // -----------------------------------------------------------------------
-
-    /// Fetch player's solved problems with retry logic.
-    /// Returns `(solved_set, success)`. On total failure, returns `(empty, false)`.
-    /// Called at game start to ensure we never serve already-solved problems.
-    pub async fn fetch_player_solved_with_retry(
-        &self,
-        handle: &str,
-        max_retries: u32,
-    ) -> (HashSet<String>, bool) {
-        for attempt in 0..=max_retries {
-            match self.fetch_player_solved(handle).await {
-                Ok(solved) => return (solved, true),
-                Err(e) => {
-                    tracing::warn!(
-                        "fetch_player_solved('{}') attempt {}/{} failed: {}",
-                        handle, attempt + 1, max_retries + 1, e
-                    );
-                    if attempt < max_retries {
-                        tokio::time::sleep(Duration::from_secs(
-                            2u64.saturating_pow(attempt),
-                        ))
-                        .await;
-                    }
-                }
-            }
-        }
-        tracing::error!(
-            "fetch_player_solved('{}') failed after {} retries — solved set unavailable",
-            handle, max_retries + 1
-        );
-        (HashSet::new(), false)
     }
 
     // -----------------------------------------------------------------------
@@ -561,4 +423,218 @@ impl CFClient {
         let mut rng = rand::thread_rng();
         unsolved.choose(&mut rng).map(|p| (*p).clone())
     }
+}
+
+// ===========================================================================
+// CF API Queue — dedicated worker with priority channels and solved-set cache
+// ===========================================================================
+
+/// Internal request dispatched to the CF API worker.
+enum CfApiRequest {
+    FetchSolvedSet {
+        handle: String,
+        resp: oneshot::Sender<Result<HashSet<String>, String>>,
+    },
+    VerifySubmission {
+        handle: String,
+        contest_id: i32,
+        index: String,
+        locked_since_unix: Option<u64>,
+        resp: oneshot::Sender<Result<bool, String>>,
+    },
+}
+
+/// Handle to the CF API queue.  Cloneable; every game / WebSocket handler
+/// shares the same underlying worker via the mpsc channels.
+#[derive(Clone)]
+pub struct CfApiQueue {
+    /// High-priority channel (verify_submission — player is actively waiting)
+    high_tx: mpsc::Sender<CfApiRequest>,
+    /// Low-priority channel (fetch_solved_set — pre-fetch / game-start)
+    low_tx: mpsc::Sender<CfApiRequest>,
+}
+
+impl CfApiQueue {
+    /// Spawn the queue worker and return a handle.
+    /// Must be called inside a Tokio runtime.
+    pub fn spawn() -> Self {
+        let (high_tx, high_rx) = mpsc::channel::<CfApiRequest>(256);
+        let (low_tx, low_rx) = mpsc::channel::<CfApiRequest>(256);
+        let client = Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
+        tokio::spawn(cf_queue_worker(high_rx, low_rx, client));
+        tracing::info!("CF API queue worker spawned (high + low priority channels)");
+
+        Self { high_tx, low_tx }
+    }
+
+    /// Queue a solved-set fetch (low priority).
+    /// The caller should retry on `Err` — the queue worker does NOT retry
+    /// internally, so a transient CF failure returns Err immediately and the
+    /// request slot is freed for the next caller.
+    pub async fn fetch_solved_set(&self, handle: &str) -> Result<HashSet<String>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.low_tx
+            .send(CfApiRequest::FetchSolvedSet {
+                handle: handle.to_string(),
+                resp: tx,
+            })
+            .await
+            .map_err(|_| "CF queue closed".to_string())?;
+        rx.await.map_err(|_| "CF worker dropped request".to_string())?
+    }
+
+    /// Queue a submission verification (high priority — jumps ahead of prefetches).
+    pub async fn verify_submission(
+        &self,
+        handle: &str,
+        contest_id: i32,
+        index: &str,
+        locked_since_unix: Option<u64>,
+    ) -> Result<bool, String> {
+        let (tx, rx) = oneshot::channel();
+        self.high_tx
+            .send(CfApiRequest::VerifySubmission {
+                handle: handle.to_string(),
+                contest_id,
+                index: index.to_string(),
+                locked_since_unix,
+                resp: tx,
+            })
+            .await
+            .map_err(|_| "CF queue closed".to_string())?;
+        rx.await.map_err(|_| "CF worker dropped request".to_string())?
+    }
+}
+
+/// Single-threaded worker that processes all CF API requests at ≤ 1 req / 2 s.
+///
+/// Design:
+/// - Two input channels: `high_rx` (verify) and `low_rx` (fetch_solved).
+/// - `biased` select gives verify_submission priority — a locked player
+///   won't be stuck behind prefetch requests from a tournament start.
+/// - No caching — each game needs a fresh solved set because the player
+///   may have solved new problems since the last fetch.
+async fn cf_queue_worker(
+    mut high_rx: mpsc::Receiver<CfApiRequest>,
+    mut low_rx: mpsc::Receiver<CfApiRequest>,
+    client: Client,
+) {
+    let mut last_request_at = Instant::now() - CF_RATE_LIMIT_INTERVAL;
+
+    loop {
+        // Wait for next request — high priority (verify) always served first.
+        let req = tokio::select! {
+            biased;
+            req = high_rx.recv() => match req { Some(r) => r, None => break },
+            req = low_rx.recv() => match req { Some(r) => r, None => break },
+        };
+
+        match req {
+            CfApiRequest::FetchSolvedSet { handle, resp } => {
+                enforce_rate_limit(&mut last_request_at).await;
+                match do_fetch_solved(&client, &handle).await {
+                    Ok(set) => { let _ = resp.send(Ok(set)); }
+                    Err(e) => {
+                        tracing::warn!("CF queue: fetch_solved('{}') failed: {}", handle, e);
+                        let _ = resp.send(Err(e));
+                    }
+                }
+            }
+            CfApiRequest::VerifySubmission { handle, contest_id, index, locked_since_unix, resp } => {
+                enforce_rate_limit(&mut last_request_at).await;
+                match do_verify_submission(&client, &handle, contest_id, &index, locked_since_unix).await {
+                    Ok(accepted) => { let _ = resp.send(Ok(accepted)); }
+                    Err(e) => {
+                        tracing::warn!("CF queue: verify('{}', {}-{}) failed: {}", handle, contest_id, index, e);
+                        let _ = resp.send(Err(e));
+                    }
+                }
+            }
+        }
+    }
+    tracing::warn!("CF API queue worker exiting — all senders dropped");
+}
+
+/// Sleep until at least `CF_RATE_LIMIT_INTERVAL` has passed since `last`.
+async fn enforce_rate_limit(last: &mut Instant) {
+    let elapsed = last.elapsed();
+    if elapsed < CF_RATE_LIMIT_INTERVAL {
+        tokio::time::sleep(CF_RATE_LIMIT_INTERVAL - elapsed).await;
+    }
+    *last = Instant::now();
+}
+
+/// Fetch all AC submissions for a handle (up to 5000).
+/// Returns a `HashSet<"contestId-index">` of solved problems.
+async fn do_fetch_solved(
+    client: &Client,
+    handle: &str,
+) -> Result<HashSet<String>, String> {
+    let encoded = urlencoding::encode(handle);
+    let url = format!(
+        "https://codeforces.com/api/user.status?handle={}&from=1&count=5000",
+        encoded
+    );
+    let http_resp = client.get(&url).send().await
+        .map_err(|e| format!("HTTP error: {e}"))?;
+    let resp: UserStatusResponse = http_resp.json().await
+        .map_err(|e| format!("JSON parse error: {e}"))?;
+    if resp.status != "OK" {
+        return Err(format!("CF API returned status={}", resp.status));
+    }
+    let mut solved = HashSet::new();
+    for sub in resp.result {
+        if sub.verdict.as_deref() == Some("OK") {
+            if let Some(cid) = sub.problem.contest_id {
+                solved.insert(format!("{}-{}", cid, sub.problem.index));
+            }
+        }
+    }
+    Ok(solved)
+}
+
+/// Verify whether `handle` has an AC for `contest_id`/`index`
+/// created AFTER `locked_since_unix` (with 30 s tolerance).
+async fn do_verify_submission(
+    client: &Client,
+    handle: &str,
+    contest_id: i32,
+    index: &str,
+    locked_since_unix: Option<u64>,
+) -> Result<bool, String> {
+    let encoded = urlencoding::encode(handle);
+    let url = format!(
+        "https://codeforces.com/api/user.status?handle={}&from=1&count=15",
+        encoded
+    );
+    let http_resp = client.get(&url).send().await
+        .map_err(|e| format!("HTTP error: {e}"))?;
+    let resp: UserStatusResponse = http_resp.json().await
+        .map_err(|e| format!("JSON parse error: {e}"))?;
+    if resp.status != "OK" {
+        return Err(format!("CF API returned status={}", resp.status));
+    }
+    for submission in resp.result {
+        if let Some(verdict) = submission.verdict {
+            if verdict == "OK"
+                && submission.problem.contest_id == Some(contest_id)
+                && submission.problem.index == index
+            {
+                // SECURITY: reject pre-solved submissions (30 s clock-skew tolerance)
+                if let Some(lock_time) = locked_since_unix {
+                    if let Some(creation_time) = submission.creation_time_seconds {
+                        if (creation_time as u64) + 30 < lock_time {
+                            continue;
+                        }
+                    }
+                }
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }

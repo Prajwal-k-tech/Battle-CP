@@ -93,6 +93,20 @@ pub enum ServerMessage {
         rating: u32,
     },
 
+    /// Sent immediately when a SolveCP request enters the CF API queue.
+    /// Frontend shows a spinner until VerifyResult or WeaponsUnlocked arrives.
+    VerifyPending {
+        player_id: Uuid,
+    },
+
+    /// Result of a SolveCP verification attempt (sent via broadcast).
+    /// Only sent on failure — success is signalled by WeaponsUnlocked instead.
+    VerifyResult {
+        player_id: Uuid,
+        accepted: bool,
+        message: String,
+    },
+
     GameOver {
         winner_id: Option<Uuid>,
         reason: String,

@@ -74,6 +74,9 @@ export interface GameState {
     myScore: number | null;
     opponentScore: number | null;
 
+    // Verification state (server-driven via VerifyPending / VerifyResult)
+    isVerifying: boolean;
+
     // Error
     lastError: string | null;
 
@@ -129,6 +132,7 @@ export const initialGameState: GameState = {
     myScore: null,
     opponentScore: null,
 
+    isVerifying: false,
     lastError: null,
     difficulty: 0,
     difficulty_mode: "band",
@@ -192,6 +196,10 @@ export type ServerMessage =
         winner_score: number;
         loser_score: number;
     }
+
+    // Verification
+    | { type: "VerifyPending"; player_id: string }
+    | { type: "VerifyResult"; player_id: string; accepted: boolean; message: string }
 
     // Error
     | { type: "Error"; message: string };

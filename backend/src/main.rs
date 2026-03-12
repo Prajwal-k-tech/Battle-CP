@@ -13,6 +13,9 @@ async fn main() -> anyhow::Result<()> {
     // Start global ticker
     tokio::spawn(backend::background::start_global_ticker(app_state.clone()));
 
+    // Start Discord webhook worker (serializes POSTs, handles rate limits)
+    backend::discord::init_worker();
+
     // Parse CORS origins from env var or use localhost defaults
     let allowed_origins: Vec<HeaderValue> = std::env::var("ALLOWED_ORIGINS")
         .unwrap_or_else(|_| {

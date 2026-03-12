@@ -237,6 +237,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         activeProblemIndex: msg.problem_index,
                         activeProblemName: msg.problem_name,
                         activeProblemRating: msg.rating,
+                        vetoTimeRemaining: null, // Clear veto timer — problem is ready to solve
                     };
                 });
                 break;
@@ -250,6 +251,7 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     return {
                         ...prev,
                         isLocked: false,
+                        isVerifying: false,
                         heat: 0,
                         status: "Weapons unlocked",
                         // Only track problems solved when actually solved (not veto expiry)
@@ -260,6 +262,23 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                         activeProblemName: null,
                         activeProblemRating: null,
                     };
+                });
+                break;
+
+            case "VerifyPending":
+                setGameState(prev => {
+                    if (msg.player_id !== prev.playerId) return prev;
+                    return { ...prev, isVerifying: true };
+                });
+                break;
+
+            case "VerifyResult":
+                setGameState(prev => {
+                    if (msg.player_id !== prev.playerId) return prev;
+                    if (!msg.accepted) {
+                        toast.error(msg.message || "Verification failed");
+                    }
+                    return { ...prev, isVerifying: false };
                 });
                 break;
 
@@ -274,6 +293,8 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     toast.error("Game start failed — ships were not deployed in time.", { id: "placement-timeout", duration: 10000 });
                 } else if (msg.reason === "SuddenDeathTimeout") {
                     toast.error("Sudden Death timed out — no player landed a hit in 10 minutes.", { id: "sd-timeout", duration: 10000 });
+                } else if (msg.reason === "CFUnavailable") {
+                    toast.error("Codeforces API is unreachable. Game cancelled — please try again later.", { id: "cf-unavailable", duration: 10000 });
                 }
 
                 setGameState(prev => {
@@ -355,6 +376,12 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                     }
                 } else if (msg.message.includes("Submission not accepted") || msg.message.includes("No accepted submission")) {
                     toast.error("No accepted submission found. Solve the problem on Codeforces first!");
+                } else if (msg.message.includes("temporarily unavailable")) {
+                    toast("Codeforces API is busy — please wait a few seconds and try again.", {
+                        id: "cf-api-busy",
+                        icon: "⏳",
+                        duration: 5000,
+                    });
                 } else {
                     toast.error(msg.message);
                 }
