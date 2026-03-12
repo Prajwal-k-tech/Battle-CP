@@ -249,44 +249,66 @@ impl CFClient {
         index: &str,
         locked_since_unix: Option<u64>,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        //fetch last 5
         let encoded_handle = urlencoding::encode(handle);
         let url = format!(
             "https://codeforces.com/api/user.status?handle={}&from=1&count=5",
             encoded_handle
         );
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await?
-            .json::<UserStatusResponse>()
-            .await?;
 
-        if resp.status != "OK" {
-            return Err("Failed to fetch user status".into());
-        }
+        // One transparent retry with 2s delay so transient CF 503s don't force
+        // the player to wait the full 10-second cooldown and retry manually.
+        let mut last_err: Option<Box<dyn Error + Send + Sync>> = None;
+        for attempt in 0..2u32 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                tracing::warn!(
+                    "verify_submission('{}', {}-{}) retry after transient error",
+                    handle, contest_id, index
+                );
+            }
+            let result = self.client.get(&url).send().await
+                .and_then(|r| Ok(r))
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
 
-        for submission in resp.result {
-            if let Some(verdict) = submission.verdict {
-                if verdict == "OK"
-                    && submission.problem.contest_id == Some(contest_id)
-                    && submission.problem.index == index
-                {
-                    // SECURITY: reject pre-solved problems (30 s clock-skew tolerance)
-                    if let Some(lock_time) = locked_since_unix {
-                        if let Some(creation_time) = submission.creation_time_seconds {
-                            if (creation_time as u64) + 30 < lock_time {
-                                continue;
+            let http_resp = match result {
+                Ok(r) => r,
+                Err(e) => { last_err = Some(e); continue; }
+            };
+            let resp = match http_resp.json::<UserStatusResponse>().await {
+                Ok(r) => r,
+                Err(e) => { last_err = Some(Box::new(e)); continue; }
+            };
+
+            if resp.status != "OK" {
+                last_err = Some("CF API returned non-OK status".into());
+                continue;
+            }
+
+            // Found a valid response — check submissions
+            for submission in resp.result {
+                if let Some(verdict) = submission.verdict {
+                    if verdict == "OK"
+                        && submission.problem.contest_id == Some(contest_id)
+                        && submission.problem.index == index
+                    {
+                        // SECURITY: reject pre-solved problems (30 s clock-skew tolerance)
+                        if let Some(lock_time) = locked_since_unix {
+                            if let Some(creation_time) = submission.creation_time_seconds {
+                                if (creation_time as u64) + 30 < lock_time {
+                                    continue;
+                                }
                             }
                         }
+                        return Ok(true);
                     }
-                    return Ok(true);
                 }
             }
+            // Response was valid but problem not yet solved — no need to retry
+            return Ok(false);
         }
 
-        Ok(false)
+        // Both attempts failed with network/API errors
+        Err(last_err.unwrap_or_else(|| "Failed to fetch user status".into()))
     }
 
     // -----------------------------------------------------------------------
