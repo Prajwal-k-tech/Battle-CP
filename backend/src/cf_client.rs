@@ -608,7 +608,7 @@ async fn do_verify_submission(
 ) -> Result<bool, String> {
     let encoded = urlencoding::encode(handle);
     let url = format!(
-        "https://codeforces.com/api/user.status?handle={}&from=1&count=15",
+        "https://codeforces.com/api/user.status?handle={}&from=1&count=5",
         encoded
     );
     let http_resp = client.get(&url).send().await

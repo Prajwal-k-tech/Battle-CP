@@ -139,10 +139,15 @@ async fn realistic_tournament_50_games_init_flood() {
         phase3_start.elapsed()
     );
     println!("\n⚠️  NOTE: This test does NOT call the actual init_game_from_cf() function.");
-    println!("   In real gameplay, 50 games starting would flood the CF API queue.");
-    println!("   Expected behavior:");
-    println!("   - First ~43 games fetch solved sets (~43 × 2.1s ≈ 90s)");
-    println!("   - Remaining 7 games timeout after 90s with CFUnavailable");
+    println!("   In real gameplay, solved sets are PRE-FETCHED at JoinGame time,");
+    println!("   spreading CF API load across lobby + placement phases.");
+    println!("   Expected behavior with prefetch + 5-min init timeout:");
+    println!("   - P1 prefetch starts when P1 connects (during lobby wait)");
+    println!("   - P2 prefetch starts when P2 joins (during placement phase)");
+    println!("   - init_game_from_cf uses already-prefetched sets when available");
+    println!("   - 5-minute timeout means even worst-case CF delays won't abort games");
+    println!("   - With staggered joins (natural in a tournament), near-100% success");
+    println!("   - Even with 50 simultaneous starts: 100 requests × 2.1s = 210s < 300s timeout ✓");
 
     // ========== PHASE 4: WAIT & CHECK STATE ==========
     println!("\n[PHASE 4] Waiting 2 seconds and checking state...");
@@ -159,16 +164,18 @@ async fn realistic_tournament_50_games_init_flood() {
     // ========== PHASE 5: ANALYSIS & PROJECTION ==========
     println!("\n[PHASE 5] Analysis: What happens with 50 concurrent game inits?\n");
 
-    println!("CF API Queue Analysis:");
+    println!("CF API Queue Analysis (with prefetch):");
     println!("  - Rate limit: 1 request per 2.1 seconds");
-    println!("  - 50 games × 2 players = 100 solved-set fetch requests needed");
-    println!("  - Sequential processing time: 100 × 2.1s = 210 seconds (3.5 minutes)");
-    println!("  - Init timeout: 90 seconds");
+    println!("  - 50 games × 2 players = 100 solved-set fetch requests");
+    println!("  - Prefetch starts at JoinGame (lobby/placement phase)");
+    println!("  - Sequential processing time: 100 × 2.1s = 210 seconds");
+    println!("  - Init timeout: 300 seconds (5 minutes)");
     println!();
     println!("Projected outcome with real CF API:");
-    println!("  - Games 1-43: Complete successfully (~43 × 2.1s ≈ 90s) ✓");
-    println!("  - Games 44-50: Timeout after 90s, finish with CFUnavailable ⚠️");
-    println!("  - Success rate: ~86% (43/50)");
+    println!("  - Most prefetches complete during placement phase (30s-120s per player)");
+    println!("  - init_game_from_cf skips CF calls for already-prefetched sets");
+    println!("  - Even worst case: 210s queue time < 300s timeout ✓");
+    println!("  - Success rate: ~100% (all 50 games) ✓");
     println!();
     println!("Current state after 2 seconds (test state):");
     println!("  Initializing: {} games (no actual CF calls in this test)", initializing_final);
@@ -180,8 +187,8 @@ async fn realistic_tournament_50_games_init_flood() {
     println!("Total test time: {:?}", total_elapsed);
     println!("\n=== RECOMMENDATION ===");
     println!("For a flawless 50-game tournament:");
-    println!("1. Prefetch solved sets at game join time (spreads CF load)");
-    println!("2. OR stagger tournament start (waves of 10-15 games)");
-    println!("3. OR increase init timeout to 180s (accept slower starts)");
-    println!("4. OR implement 30s dedup cache for duplicate handles")
+    println!("1. Prefetching at JoinGame time spreads CF load (IMPLEMENTED ✓)");
+    println!("2. 5-minute init timeout gives enough headroom (IMPLEMENTED ✓)");
+    println!("3. Natural staggering of game creation further reduces queue pressure");
+    println!("4. Verify submissions use high-priority queue — won't get stuck behind prefetches");
 }

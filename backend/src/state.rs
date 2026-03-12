@@ -167,6 +167,10 @@ pub struct Player {
     /// Format: "contestId-index" (e.g., "1234-A").
     #[serde(skip)]
     pub solved_set: HashSet<String>,
+    /// Whether the solved_set has been successfully fetched from CF.
+    /// Distinguishes "not yet fetched" (false) from "fetched but empty" (true).
+    #[serde(skip)]
+    pub solved_set_ready: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

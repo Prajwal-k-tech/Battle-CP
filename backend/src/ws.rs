@@ -487,6 +487,28 @@ async fn handle_client_message(
                         });
                     }
 
+                    // Prefetch solved set on first connection if not already done.
+                    // Spreads CF API load: P1 prefetches while waiting for P2,
+                    // P2 prefetches during placement.
+                    let should_prefetch = if is_p1 {
+                        !game.player1.solved_set_ready
+                    } else {
+                        game.player2.as_ref().map(|p| !p.solved_set_ready).unwrap_or(false)
+                    };
+                    if should_prefetch {
+                        let state2 = state.clone();
+                        let gid = game_id;
+                        let handle = if is_p1 {
+                            game.player1.cf_handle.clone()
+                        } else {
+                            game.player2.as_ref().unwrap().cf_handle.clone()
+                        };
+                        let p_id = pid;
+                        tokio::spawn(async move {
+                            prefetch_solved_set(state2, gid, p_id, handle).await;
+                        });
+                    }
+
                     return msgs;
                 }
 
@@ -527,6 +549,18 @@ async fn handle_client_message(
 
                     // Return GameJoined + PlayerJoined for P1 to the joining Guest
                     // This tells Guest that the opponent (Host) already exists
+
+                    // Spawn P2 solved-set prefetch so it runs during the placement phase.
+                    // By the time both players finish placing ships, this is likely done.
+                    {
+                        let state2 = state.clone();
+                        let gid = game_id;
+                        let p2_handle = game.player2.as_ref().unwrap().cf_handle.clone();
+                        tokio::spawn(async move {
+                            prefetch_solved_set(state2, gid, pid, p2_handle).await;
+                        });
+                    }
+
                     return vec![
                         ServerMessage::GameJoined {
                             game_id,
@@ -1198,31 +1232,76 @@ async fn handle_client_message(
 /// Fetch both players' solved sets via the CF queue with retry,
 /// build the shared problem queue, then transition to Playing.
 ///
-/// Runs as a `tokio::spawn`-ed task. Has a 90s timeout — if CF is
-/// completely unreachable for that long, the game is finished cleanly
-/// rather than leaving players staring at "Setting up battle..." for
-/// the full 10-min placement timeout.
+/// Runs as a `tokio::spawn`-ed task.  Uses pre-fetched solved sets when
+/// available (spawned at JoinGame time to spread CF load across lobby +
+/// placement phases).  Falls back to direct fetch for any sets that
+/// weren't pre-fetched in time.  5-minute timeout — refuses to start the
+/// game without properly checking both players' submission histories.
 async fn init_game_from_cf(
     state: AppState,
     game_id: uuid::Uuid,
     p1_handle: String,
     p2_handle: String,
 ) {
-    // 90s timeout — if CF is completely down, abort cleanly.
+    // 5-minute timeout — player agreed this is reasonable.  We refuse to
+    // start a game without a properly built problem queue.
     let fetch_result = tokio::time::timeout(
-        std::time::Duration::from_secs(90),
+        std::time::Duration::from_secs(300),
         async {
-            let p1 = fetch_solved_with_retry(&state, &p1_handle).await;
-            let p2 = fetch_solved_with_retry(&state, &p2_handle).await;
-            (p1, p2)
+            // Check what the prefetch tasks have already fetched
+            let (p1_prefetched, p2_prefetched) = {
+                let games = state.games.read().await;
+                match games.get(&game_id) {
+                    Some(game) => {
+                        let p1 = if game.player1.solved_set_ready {
+                            Some(game.player1.solved_set.clone())
+                        } else {
+                            None
+                        };
+                        let p2 = game.player2.as_ref().and_then(|p| {
+                            if p.solved_set_ready { Some(p.solved_set.clone()) } else { None }
+                        });
+                        (p1, p2)
+                    }
+                    None => return None,
+                }
+            };
+
+            // Fetch only what's missing — prefetched sets save CF API calls
+            let p1_set = match p1_prefetched {
+                Some(set) => {
+                    tracing::info!("init_game_from_cf {:?}: P1 solved set already prefetched ({} problems)", game_id, set.len());
+                    set
+                }
+                None => {
+                    tracing::info!("init_game_from_cf {:?}: P1 solved set not ready, fetching now", game_id);
+                    fetch_solved_with_retry(&state, &p1_handle).await
+                }
+            };
+            let p2_set = match p2_prefetched {
+                Some(set) => {
+                    tracing::info!("init_game_from_cf {:?}: P2 solved set already prefetched ({} problems)", game_id, set.len());
+                    set
+                }
+                None => {
+                    tracing::info!("init_game_from_cf {:?}: P2 solved set not ready, fetching now", game_id);
+                    fetch_solved_with_retry(&state, &p2_handle).await
+                }
+            };
+
+            Some((p1_set, p2_set))
         },
     ).await;
 
     let (p1_set, p2_set) = match fetch_result {
-        Ok(sets) => sets,
+        Ok(Some(sets)) => sets,
+        Ok(None) => {
+            // Game vanished while reading
+            return;
+        }
         Err(_) => {
-            // Timeout — CF has been unreachable for 90s. Finish the game cleanly.
-            tracing::error!("init_game_from_cf: 90s timeout fetching solved sets for game {:?}", game_id);
+            // 5-minute timeout — CF has been unreachable the entire time.
+            tracing::error!("init_game_from_cf: 5-min timeout fetching solved sets for game {:?}", game_id);
             let mut games = state.games.write().await;
             if let Some(game) = games.get_mut(&game_id) {
                 if game.status == crate::state::GameStatus::Initializing {
@@ -1257,8 +1336,10 @@ async fn init_game_from_cf(
     }
 
     game.player1.solved_set = p1_set;
+    game.player1.solved_set_ready = true;
     if let Some(ref mut p2) = game.player2 {
         p2.solved_set = p2_set;
+        p2.solved_set_ready = true;
     }
     tracing::info!(
         "Game {:?}: fetched solved sets (P1: {}, P2: {})",
@@ -1298,6 +1379,54 @@ async fn init_game_from_cf(
 
     // Broadcast GameStart to both players
     let _ = game.tx.send(crate::state::GameEvent::Message(ServerMessage::GameStart));
+}
+
+/// Pre-fetch a player's solved set in the background.
+/// Spawned at JoinGame time to spread CF API load across the lobby
+/// and placement phases instead of concentrating it at game start.
+/// 4-minute timeout — leaves headroom for init_game_from_cf's 5-min timeout.
+async fn prefetch_solved_set(
+    state: AppState,
+    game_id: uuid::Uuid,
+    player_id: uuid::Uuid,
+    handle: String,
+) {
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(240),
+        fetch_solved_with_retry(&state, &handle),
+    ).await;
+
+    let set = match result {
+        Ok(set) => set,
+        Err(_) => {
+            tracing::warn!(
+                "prefetch_solved_set timed out for '{}' in game {:?}",
+                handle, game_id
+            );
+            return; // init_game_from_cf will handle the missing data
+        }
+    };
+
+    let mut games = state.games.write().await;
+    if let Some(game) = games.get_mut(&game_id) {
+        if game.player1.id == player_id {
+            game.player1.solved_set = set;
+            game.player1.solved_set_ready = true;
+            tracing::info!(
+                "Prefetched P1 ({}) solved set for game {:?}: {} problems",
+                handle, game_id, game.player1.solved_set.len()
+            );
+        } else if let Some(ref mut p2) = game.player2 {
+            if p2.id == player_id {
+                p2.solved_set = set;
+                p2.solved_set_ready = true;
+                tracing::info!(
+                    "Prefetched P2 ({}) solved set for game {:?}: {} problems",
+                    handle, game_id, p2.solved_set.len()
+                );
+            }
+        }
+    }
 }
 
 /// Fetch a player's solved set via the CF queue with infinite retry.
