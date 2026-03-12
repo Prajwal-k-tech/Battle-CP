@@ -1,15 +1,36 @@
 use crate::protocol::ServerMessage;
 use crate::state::{AppState, GameEvent, GameStatus, TiebreakResult}; //our app state 
 use tokio::time::{sleep, Duration};
+use uuid::Uuid;
+
 //main game loop / server handling multiple game states at a timeR
 pub async fn start_global_ticker(state: AppState) {
     //our async global ticker, keep passing the app state
     loop {
         sleep(Duration::from_secs(1)).await; //1 tick  is 1 second
-        let mut games = state.games.write().await;
-        for game in games.values_mut() {
-            // Periodic State Sync (Every 1 second for perfect timer sync)
-            let _ = game.tx.send(GameEvent::Tick);
+
+        // ── PHASE 1: Collect game IDs + broadcast Tick (brief read lock) ──────
+        // Each game has its own broadcast channel. Sending Tick only needs the
+        // Sender, which we can clone cheaply under a read lock.
+        let game_ids: Vec<(Uuid, tokio::sync::broadcast::Sender<GameEvent>)> = {
+            let games = state.games.read().await;
+            games.values().map(|g| (g.id, g.tx.clone())).collect()
+        };
+        // Broadcast Tick to all games without holding any write lock
+        for (_, tx) in &game_ids {
+            let _ = tx.send(GameEvent::Tick);
+        }
+
+        // ── PHASE 2: Per-game state mutations (one write lock per game) ───────
+        // Process each game individually so contention is 1/50th of the old approach.
+        // A WebSocket handler waiting for game X is only blocked while we process game X,
+        // not while we process all 50 other games.
+        for (id, _) in &game_ids {
+            let mut games = state.games.write().await;
+            let game = match games.get_mut(id) {
+                Some(g) => g,
+                None => continue, // Game was cleaned up, skip
+            };
 
             if game.status == GameStatus::Waiting {
                 if game.created_at.elapsed() >= std::time::Duration::from_secs(300) { //if you waited for more than 5 minutes
@@ -186,40 +207,44 @@ pub async fn start_global_ticker(state: AppState) {
                     }
                 }
             }
+            // Write lock is dropped here at end of this iteration, freeing it for
+            // WebSocket handlers targeting this game before we move to the next one.
         }
 
-        // CLEANUP: Remove games that:
-        // - Finished more than 5 minutes ago
-        // - Are waiting > 30 mins
-        // - Are placing ships > 30 mins (player joined but never placed)
-        let finished_cleanup_threshold = std::time::Duration::from_secs(300); // 5 minutes after finish
-        let waiting_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if waiting
-        let placing_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if placing ships
+        // ── PHASE 3: Cleanup (brief write lock, retain is fast) ───────────────
+        {
+            let mut games = state.games.write().await;
+            // CLEANUP: Remove games that:
+            // - Finished more than 5 minutes ago
+            // - Are waiting > 30 mins
+            // - Are placing ships > 30 mins (player joined but never placed)
+            let finished_cleanup_threshold = std::time::Duration::from_secs(300); // 5 minutes after finish
+            let waiting_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if waiting
+            let placing_cleanup_threshold = std::time::Duration::from_secs(1800); // 30 minutes if placing ships
 
-        let removed = games.len();
-        games.retain(|_id, game| {
-            if let Some(finished) = game.finished_at {
-                // If finished, keep only if within threshold
-                finished.elapsed() < finished_cleanup_threshold
-            } else if game.status == GameStatus::Waiting {
-                // If waiting for P2, keep only if within threshold
-                game.created_at.elapsed() < waiting_cleanup_threshold
-            } else if game.status == GameStatus::PlacingShips {
-                // If stuck in placement phase, clean up after threshold from when placement started
-                game.placement_started_at
-                    .map(|ps| ps.elapsed() < placing_cleanup_threshold)
-                    .unwrap_or_else(|| game.created_at.elapsed() < placing_cleanup_threshold)
-            } else {
-                // Keep active/playing games (Playing, SuddenDeath)
-                true
+            let before = games.len();
+            games.retain(|_id, game| {
+                if let Some(finished) = game.finished_at {
+                    // If finished, keep only if within threshold
+                    finished.elapsed() < finished_cleanup_threshold
+                } else if game.status == GameStatus::Waiting {
+                    // If waiting for P2, keep only if within threshold
+                    game.created_at.elapsed() < waiting_cleanup_threshold
+                } else if game.status == GameStatus::PlacingShips {
+                    // If stuck in placement phase, clean up after threshold from when placement started
+                    game.placement_started_at
+                        .map(|ps| ps.elapsed() < placing_cleanup_threshold)
+                        .unwrap_or_else(|| game.created_at.elapsed() < placing_cleanup_threshold)
+                } else {
+                    // Keep active/playing games (Playing, SuddenDeath)
+                    true
+                }
+            });
+            let removed = before - games.len();
+            if removed > 0 {
+                tracing::info!("Cleaned up {} finished/abandoned games ({} remaining)", removed, games.len());
             }
-        });
-        let removed = removed - games.len();
-        if removed > 0 {
-            tracing::info!("Cleaned up {} finished/abandoned games ({} remaining)", removed, games.len());
         }
-        // Drop write lock before rate limiter cleanup
-        drop(games);
 
         // RATE LIMITER CLEANUP: Purge expired entries every 60 seconds
         // to prevent unbounded memory growth during tournament
