@@ -7,6 +7,9 @@ use tower_http::trace::TraceLayer;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load local .env variables if present
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt::init();
     let app_state = AppState::new();
 

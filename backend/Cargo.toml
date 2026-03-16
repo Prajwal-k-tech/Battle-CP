@@ -18,6 +18,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 futures = "0.3"
 anyhow = "1.0.100"
 urlencoding = "2"
+dotenvy = "0.15.7"
 
 [dev-dependencies]
 tokio-tungstenite = "0.21.0"

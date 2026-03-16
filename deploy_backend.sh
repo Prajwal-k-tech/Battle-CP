@@ -2,10 +2,9 @@
 set -e
 echo "🚀 Starting BattleCP Backend Deployment..."
 
-if [ -z "$DISCORD_WEBHOOK_URL" ]; then
-  echo "❌ Error: DISCORD_WEBHOOK_URL is not set in the current shell."
-  echo "   Run: export DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/...'"
-  exit 1
+# Load environment variables from .env file if it exists, safely ignoring comments.
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
 fi
 
 # Get ACR credentials
