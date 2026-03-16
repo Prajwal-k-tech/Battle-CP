@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "predev": "npm run sync:assets",
     "dev": "next dev",
+    "prebuild": "npm run sync:assets",
     "build": "next build",
+    "prestart": "npm run sync:assets",
     "start": "next start",
     "lint": "eslint"
   },
@@ -28,7 +32,7 @@
     "framer-motion": "^12.23.26",
     "gsap": "^3.14.2",
     "lucide-react": "^0.560.0",
-    "next": "16.0.10",
+    "next": "^16.1.6",
     "next-themes": "^0.4.6",
     "ogl": "^1.0.11",
     "react": "19.2.0",

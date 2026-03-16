@@ -21,6 +21,9 @@
 /build
 /private_learning
 /scripts
+/public/assets
+!/scripts/
+!/scripts/sync-assets.mjs
 
 # misc
 .DS_Store

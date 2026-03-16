@@ -20,23 +20,25 @@ const MusicContext = createContext<MusicContextType>({
 
 export const useMusic = () => useContext(MusicContext);
 
+const ASSET_BASE_PATH = "/assets";
+
 // Main game tracks - will shuffle and loop
 const COMBAT_TRACKS = [
-    "/sounds/Main game sounds/xX_TF_CNS_CeratopSID_06_Xx [Y5NKVsbxTzk].mp3",
-    "/sounds/Main game sounds/xX_TF_CNS_FloatingBits_Mp3_Xx [F3tMmemgJvE].mp3",
-    "/sounds/Main game sounds/xX_TF_CNS_FreeDoom_Ver07_24bit_Wav_Xx [GrcWZWZCC8g].mp3",
-    "/sounds/Main game sounds/xX_TF_CNS_MegaUltraHeavy_DeleteThiz_Xx [82IksSrJeiU].mp3",
-    "/sounds/Main game sounds/xX_TF_CNS_SpaceCube50_mstrd_wav_Xx [bCeLEUX5npU].mp3",
-    "/sounds/Main game sounds/xX_TF_CNS_SyntaxCNS_PWM_Stere0_Xx [RnRc5TYAvmE].mp3",
-    "/sounds/Main game sounds/xX_TF_CNS_WAREz_FinalVer2b_24bit_Wav_Xx [8VWlVTkGCZk].mp3",
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_CeratopSID_06_Xx [Y5NKVsbxTzk].mp3`,
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_FloatingBits_Mp3_Xx [F3tMmemgJvE].mp3`,
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_FreeDoom_Ver07_24bit_Wav_Xx [GrcWZWZCC8g].mp3`,
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_MegaUltraHeavy_DeleteThiz_Xx [82IksSrJeiU].mp3`,
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_SpaceCube50_mstrd_wav_Xx [bCeLEUX5npU].mp3`,
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_SyntaxCNS_PWM_Stere0_Xx [RnRc5TYAvmE].mp3`,
+    `${ASSET_BASE_PATH}/Main game sounds/xX_TF_CNS_WAREz_FinalVer2b_24bit_Wav_Xx [8VWlVTkGCZk].mp3`,
 ];
 
 const PHASE_TRACKS: Record<Exclude<MusicPhase, "combat">, string> = {
-    menu: "/sounds/ambient_theme.mp3",
-    placement: "/sounds/placementphase.mp3",
-    sudden_death: "/sounds/Sudden_death.mp3",
-    victory: "/sounds/winner-game-sound-404167.mp3",
-    defeat: "/sounds/game_loser.mp3",
+    menu: `${ASSET_BASE_PATH}/ambient_theme.mp3`,
+    placement: `${ASSET_BASE_PATH}/placementphase.mp3`,
+    sudden_death: `${ASSET_BASE_PATH}/Sudden_death.mp3`,
+    victory: `${ASSET_BASE_PATH}/winner-game-sound-404167.mp3`,
+    defeat: `${ASSET_BASE_PATH}/game_loser.mp3`,
 };
 
 function shuffleArray<T>(array: T[]): T[] {

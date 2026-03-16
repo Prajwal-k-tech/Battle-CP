@@ -233,11 +233,25 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer
-        className="absolute bottom-6 w-full text-center text-zinc-600 text-[10px] z-20 opacity-50 pointer-events-none"
-        style={{ fontFamily: '"Press Start 2P", system-ui' }}
-      >
-        SYSTEM READY // BATTLE_CP_V1.0
+      <footer className="absolute bottom-6 w-full z-20 pointer-events-none">
+        <div
+          className="mx-auto flex items-center justify-center gap-2 pointer-events-auto text-[10px]"
+          style={{ fontFamily: '"Press Start 2P", system-ui' }}
+        >
+          <span className="text-zinc-300 opacity-80">SYSTEM READY</span>
+          <span className="text-zinc-400 opacity-70">//</span>
+          <span className="text-zinc-300 opacity-80">BATTLE_CP_V1.0</span>
+          <span className="text-zinc-400 opacity-70">//</span>
+          <span className="text-zinc-300 opacity-80">Made by</span>
+          <a
+            href="https://linktr.ee/oGhostyyy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary opacity-80 hover:text-white"
+          >
+            &nbsp;oGhostyyy
+          </a>
+        </div>
       </footer>
     </div>
   );
