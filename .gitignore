@@ -27,6 +27,7 @@ yarn.lock
 .env.production.local
 .env.test.local
 .dockerenv
+deploy_backend.sh
 
 # Note: .env.example IS tracked (template for setup)
 
