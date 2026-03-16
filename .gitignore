@@ -1,38 +1,94 @@
-# Rust
+# ============================================================
+# RUST & Cargo
+# ============================================================
 target/
 **/*.rs.bk
+Cargo.lock
 
-# Node
+# ============================================================
+# NODE & Next.js
+# ============================================================
 node_modules/
 .next/
 out/
 build/
 dist/
+.turbo/
+pnpm-lock.yaml
+yarn.lock
 
-# Env & Secrets
+# ============================================================
+# ENVIRONMENT VARIABLES & SECRETS (DO NOT TRACK)
+# ============================================================
 .env
+.env.local
+.env.*.local
 .env*.local
+.env.production.local
+.env.test.local
+.dockerenv
 
-# OS
+# Note: .env.example IS tracked (template for setup)
+
+# ============================================================
+# IDE & EDITOR CONFIGS
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
+*.iml
+.project
+.classpath
+.c9/
+*.sublime-workspace
 
-# Private / Learning
-private_learning/
-.gemini/
+# ============================================================
+# OS & SYSTEM FILES
+# ============================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================================================
+# PYTHON (VENV)
+# ============================================================
 .venv/
 venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
 
-# Compiled binaries & test executables
-A_Floor_Number
+# ============================================================
+# DEVELOPMENT & BUILD ARTIFACTS
+# ============================================================
+dist/
+build/
 *.exe
 *.out
+A_Floor_Number
 
-# Test & stress test scripts
-scripts/
-
-# CP IDE cache
+# ============================================================
+# TEST, STRESS, & PRIVATE
+# ============================================================
+private_learning/
+.gemini/
 .cph/
-
-# Development/Learning documentation
+scripts/
 TOURNAMENT_READINESS.md
+
+# ============================================================
+# GENERATED / FRONTEND BUILD ARTIFACTS
+# ============================================================
+frontend/public/assets/
+frontend/.next/dev/lock
+frontend/coverage/

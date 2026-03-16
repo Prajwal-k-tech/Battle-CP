@@ -27,7 +27,8 @@ COPY --from=builder /app/target/release/backend ./
 ENV PORT=3000
 ENV WEBSITES_PORT=3000
 ENV RUST_LOG=info
-ENV DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1483136702838083799/vOZapcWehMPCjMXHlNxFUPTLzNIKo8UHZpk0VNE4dZ7IEDCdVyQjScMaJFcAp0d3XNCK
+# DISCORD_WEBHOOK_URL should be set via secrets at runtime (not baked into image)
+ENV DISCORD_WEBHOOK_URL=
 
 EXPOSE 3000
 
