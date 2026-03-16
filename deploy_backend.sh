@@ -2,6 +2,12 @@
 set -e
 echo "🚀 Starting BattleCP Backend Deployment..."
 
+if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+  echo "❌ Error: DISCORD_WEBHOOK_URL is not set in the current shell."
+  echo "   Run: export DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/...'"
+  exit 1
+fi
+
 # Get ACR credentials
 echo "🔑 Fetching Azure Container Registry credentials..."
 PASSWORD=$(az acr credential show -n battlecpcr --query "passwords[0].value" -o tsv)

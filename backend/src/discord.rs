@@ -332,6 +332,7 @@ static QUEUE_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<MatchReport>> =
 pub fn init_worker() {
     let (tx, rx) = tokio::sync::mpsc::channel::<MatchReport>(64);
     QUEUE_TX.set(tx).ok();
+    tracing::info!("Discord webhook worker initialized");
     tokio::spawn(webhook_worker(rx));
 }
 
@@ -358,7 +359,10 @@ pub fn log_game(game: &Game, winner_id: Option<Uuid>, reason: &str) {
 async fn post_report_with_retry(report: &MatchReport) {
     let url = match std::env::var("DISCORD_WEBHOOK_URL") {
         Ok(u) if !u.is_empty() => u,
-        _ => return,
+        _ => {
+            tracing::info!("DISCORD_WEBHOOK_URL not set or empty — Discord match reporting disabled");
+            return;
+        }
     };
 
     let embed = build_embed(report);
