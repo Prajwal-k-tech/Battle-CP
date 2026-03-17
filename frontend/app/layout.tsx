@@ -32,7 +32,39 @@ const pressStart2P = Press_Start_2P({ // 2. Configure
 
 export const metadata: Metadata = {
   title: "Battle CP | Competitive Programming Naval Combat",
-  description: "A real-time strategy game blending Battleship mechanics with competitive programming problems.",
+  description: "A real-time strategy game blending Battleship mechanics with competitive programming. Solve Codeforces problems to cool down your weapons and defeat your opponent.",
+  keywords: ["Competitive Programming", "Codeforces", "Battleship", "Coding Game", "Programming Strategy", "Battle CP", "Algorithms Game"],
+  authors: [{ name: "oGhostyyy" }],
+  openGraph: {
+    title: "Battle CP | Competitive Programming Naval Combat",
+    description: "Battleship meets Competitive Programming. Solve problems to win the naval war.",
+    url: process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app",
+    siteName: "Battle CP",
+    images: [
+      {
+        url: "/og-image.svg",
+        width: 1200,
+        height: 630,
+        alt: "Battle CP Gameplay",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Battle CP | Competitive Programming Naval Combat",
+    description: "Solve Codeforces problems to win a game of Battleship.",
+    images: ["/og-image.svg"],
+    creator: "@oGhostyyy",
+  },
+  alternates: {
+    canonical: process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 import { SoundProvider } from "@/context/SoundContext";

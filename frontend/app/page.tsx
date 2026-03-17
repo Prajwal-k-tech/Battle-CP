@@ -15,6 +15,7 @@ import { motion } from "framer-motion";
 import { useSound } from "@/context/SoundContext";
 import { useMusic } from "@/context/MusicContext";
 import { useEffect, useState } from "react";
+import Script from "next/script";
 
 // Stable constant for FaultyTerminal to prevent re-renders
 const GRID_MUL: [number, number] = [2, 1];
@@ -23,6 +24,23 @@ export default function Home() {
   const { playJoin, playSuccess, playShipPlace } = useSound();
   const { setPhase } = useMusic();
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
+
+  // JSON-LD Structured Data
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Battle CP",
+    "description": "A competitive programming strategy game combining Battleship mechanics with Codeforces problems.",
+    "genre": ["Strategy", "Educational", "Puzzle"],
+    "gamePlatform": "Web Browser",
+    "author": {
+      "@type": "Person",
+      "name": "oGhostyyy",
+      "url": "https://linktr.ee/oGhostyyy"
+    },
+    "applicationCategory": "Game",
+    "operatingSystem": "Any"
+  };
 
   // Check for active game session on mount
   useEffect(() => {
@@ -66,6 +84,11 @@ export default function Home() {
 
       {/* Background with FaultyTerminal */}
       <div className="absolute inset-0 z-0">
+        <Script
+          id="structured-data"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         <MemoizedFaultyTerminal
           scale={1.5}
           gridMul={GRID_MUL}
