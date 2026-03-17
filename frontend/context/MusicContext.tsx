@@ -18,7 +18,18 @@ const MusicContext = createContext<MusicContextType>({
     volume: 0.25,
 });
 
-export const useMusic = () => useContext(MusicContext);
+export const useMusic = () => {
+    const context = useContext(MusicContext);
+    if (!context) {
+        return {
+            currentPhase: "menu" as MusicPhase,
+            setPhase: () => { },
+            setVolume: () => { },
+            volume: 0.25,
+        };
+    }
+    return context;
+};
 
 const ASSET_BASE_PATH = "/assets";
 
