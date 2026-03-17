@@ -17,8 +17,7 @@ import { Slider } from "@/components/ui/slider";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+import { getApiBaseUrl } from "@/lib/backendUrls";
 
 // Stable constant for FaultyTerminal to prevent re-renders
 const GRID_MUL: [number, number] = [2, 1];
@@ -76,7 +75,8 @@ export default function CreateGamePage() {
         setIsCreating(true);
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/game`, {
+            const apiBaseUrl = getApiBaseUrl();
+            const res = await fetch(`${apiBaseUrl}/api/game`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({

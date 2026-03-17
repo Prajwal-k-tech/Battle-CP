@@ -8,8 +8,7 @@ import {
     ShipPlacement,
 } from "@/types/game";
 import { toast } from "sonner";
-
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3000";
+import { getWsBaseUrl } from "@/lib/backendUrls";
 
 export function useGameSocket(gameId: string, playerId: string, cfHandle: string) {
     const [gameState, setGameState] = useState<GameState>(initialGameState);
@@ -406,7 +405,8 @@ export function useGameSocket(gameId: string, playerId: string, cfHandle: string
                 return;
             }
             isConnecting.current = true;
-            const ws = new WebSocket(`${WS_BASE_URL}/ws/${gameId}?player_id=${playerId}`);
+            const wsBaseUrl = getWsBaseUrl();
+            const ws = new WebSocket(`${wsBaseUrl}/ws/${gameId}?player_id=${playerId}`);
             wsRef.current = ws;
 
             ws.onopen = () => {
