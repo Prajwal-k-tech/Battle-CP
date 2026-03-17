@@ -42,6 +42,32 @@ export default function Home() {
     "operatingSystem": "Any"
   };
 
+  // Breadcrumb Schema for SEO
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Create Game",
+        "item": `${process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app"}/lobby/create`
+      },
+      {
+        "@type": "ListItem",
+        "position": 3,
+        "name": "Join Game",
+        "item": `${process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app"}/lobby/join`
+      }
+    ]
+  };
+
   // Check for active game session on mount
   useEffect(() => {
     const activeGame = localStorage.getItem("battlecp_active_game");
@@ -88,6 +114,11 @@ export default function Home() {
           id="structured-data"
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        <Script
+          id="breadcrumb-schema"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
         />
         <MemoizedFaultyTerminal
           scale={1.5}

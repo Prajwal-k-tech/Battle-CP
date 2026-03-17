@@ -71,14 +71,65 @@ import { SoundProvider } from "@/context/SoundContext";
 import { MusicProvider } from "@/context/MusicContext";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import Script from "next/script";
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app";
+  
+  // Organization + Website JSON-LD Schema
+  const organizationSchema = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Battle CP",
+    "description": "Competitive Programming meets Battleship - Real-time multiplayer strategy game",
+    "url": baseUrl,
+    "logo": `${baseUrl}/og-image.svg`,
+    "sameAs": [
+      "https://github.com/yourusername/Battle-CP",
+      "https://linktr.ee/oGhostyyy"
+    ],
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "Social Media",
+      "url": "https://linktr.ee/oGhostyyy"
+    }
+  };
+
+  const websiteSchema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Battle CP",
+    "url": baseUrl,
+    "potentialAction": {
+      "@type": "PlayAction",
+      "target": `${baseUrl}/lobby/join`
+    },
+    "isPartOf": {
+      "@type": "Game",
+      "name": "Battle CP"
+    }
+  };
+
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script
+          id="organization-schema"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
+          strategy="afterInteractive"
+        />
+        <Script
+          id="website-schema"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+          strategy="afterInteractive"
+        />
+      </head>
       <body
         className={cn(
           "min-h-screen bg-background font-sans antialiased",
