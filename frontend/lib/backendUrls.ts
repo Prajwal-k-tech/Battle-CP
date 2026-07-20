@@ -1,11 +1,21 @@
+const PROD_API_BASE_URL = "https://battlecp-backend-692720345531.us-central1.run.app";
+
+function trimTrailingSlash(url: string): string {
+  return url.endsWith("/") ? url.slice(0, -1) : url;
+}
+
 export function getApiBaseUrl(): string {
-  return "";
+  const configured = process.env.NEXT_PUBLIC_API_URL;
+  if (configured) {
+    return trimTrailingSlash(configured);
+  }
+  return PROD_API_BASE_URL;
 }
 
 export function getWsBaseUrl(): string {
-  if (typeof window !== "undefined") {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${window.location.host}`;
+  const configured = process.env.NEXT_PUBLIC_WS_URL;
+  if (configured) {
+    return trimTrailingSlash(configured);
   }
-  return "";
+  return PROD_API_BASE_URL.replace("https://", "wss://");
 }
