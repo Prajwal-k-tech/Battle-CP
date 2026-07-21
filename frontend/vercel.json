@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "destination": "https://battle-cp.duckdns.org/:path*",
+      "permanent": false
+    }
+  ]
+}
