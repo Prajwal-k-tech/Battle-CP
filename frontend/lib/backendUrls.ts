@@ -1,4 +1,4 @@
-const PROD_API_BASE_URL = "https://battlecp-backend-692720345531.us-central1.run.app";
+const PROD_API_BASE_URL = "https://battlecp.duckdns.org";
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
