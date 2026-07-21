@@ -259,16 +259,47 @@ Mirrors backend protocol.rs exactly for type safety.
 
 ## Deployment
 
+### Hosting: Oracle Cloud Always Free
+
+**VM Specs (A1 Flex):**
+- 4 ARM OCPUs + 24GB RAM (always free)
+- Ubuntu 22.04 / 24.04
+- Public IP with port 80/443
+
+**Deployment Scripts:**
+- `oracle_setup.sh` — One-time VM setup (Docker, firewall, anti-idle cron)
+- `deploy_oracle.sh` — Build & deploy backend to Oracle VM
+- `oracle_anti_idle.sh` — Prevents idle instance reclamation
+- `nginx_battlecp.conf` — Nginx reverse proxy with WebSocket support
+
+**Deploy Flow:**
+```bash
+# 1. One-time: Set up Oracle VM
+ssh ubuntu@<VM_IP> 'bash -s' < oracle_setup.sh
+
+# 2. Deploy backend
+ORACLE_SSH_HOST=ubuntu@<VM_IP> bash deploy_oracle.sh
+
+# 3. Set up TLS (optional)
+ssh ubuntu@<VM_IP> 'sudo certbot certonly --standalone -d yourdomain.com'
+```
+
+**Anti-Idle Cron:**
+- Runs every 5 minutes
+- Burns ~20% CPU for 60s if idle < 15%
+- Prevents Oracle from reclaiming instance after 7 days
+
 ### Environment Variables
 
 ```bash
 # Backend
 PORT=3000
-ALLOWED_ORIGINS=https://yourdomain.com
+ALLOWED_ORIGINS=https://battle-cp.vercel.app
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 
 # Frontend
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com
-NEXT_PUBLIC_WS_URL=wss://api.yourdomain.com
+NEXT_PUBLIC_API_URL=https://battle-cp.vercel.app
+NEXT_PUBLIC_WS_URL=wss://battle-cp.vercel.app
 ```
 
 

@@ -17,15 +17,14 @@ RUN cargo build --release
 FROM debian:bookworm-slim
 WORKDIR /app
 
-# Install runtime certificates (required for reqwest to make HTTPS calls)
-RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+# Install runtime certificates + curl for health checks
+RUN apt-get update && apt-get install -y ca-certificates libssl3 curl && rm -rf /var/lib/apt/lists/*
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/backend ./
 
-# Azure App Service and local port configuration
+# Server configuration
 ENV PORT=3000
-ENV WEBSITES_PORT=3000
 ENV RUST_LOG=info
 # DISCORD_WEBHOOK_URL should be set via secrets at runtime (not baked into image)
 ENV DISCORD_WEBHOOK_URL=

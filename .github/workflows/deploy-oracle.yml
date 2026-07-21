@@ -1,0 +1,108 @@
+# Battle CP - Deploy to Oracle Cloud
+# Builds ARM64 Docker image on CI, transfers to Oracle VM, and runs it.
+#
+# Setup:
+#   1. Add these secrets to your GitHub repo (Settings → Secrets and variables → Actions):
+#      - ORACLE_HOST:     <VM_IP> (just the IP, no ubuntu@)
+#      - ORACLE_SSH_KEY:  Your private SSH key for the VM
+#      - DISCORD_WEBHOOK_URL: (optional) Discord webhook URL
+#   2. First, run oracle_setup.sh on your Oracle VM (manual one-time setup)
+#   3. Push to main — this workflow deploys automatically
+
+name: Deploy to Oracle Cloud
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build & Deploy Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for ARM64 Docker build)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ARM64 Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          platforms: linux/arm64
+          tags: battlecp-backend:latest
+          outputs: type=docker,dest=/tmp/battlecp-backend.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Compress image for transfer
+        run: gzip -f /tmp/battlecp-backend.tar
+
+      - name: Copy image to Oracle VM
+        run: |
+          scp -o StrictHostKeyChecking=no \
+            /tmp/battlecp-backend.tar.gz \
+            ubuntu@${{ secrets.ORACLE_HOST }}:~/battlecp/backend.tar.gz
+
+      - name: Deploy on Oracle VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            cd ~/battlecp
+
+            # Load the image
+            echo "📦 Loading Docker image..."
+            gunzip -f backend.tar.gz
+            docker load -i backend.tar
+            rm -f backend.tar
+
+            # Stop and remove old container
+            echo "🔄 Stopping old container..."
+            docker stop battlecp-backend 2>/dev/null || true
+            docker rm battlecp-backend 2>/dev/null || true
+
+            # Start new container
+            echo "🚀 Starting new container..."
+            docker run -d \
+              --name battlecp-backend \
+              --restart unless-stopped \
+              -p 127.0.0.1:3000:3000 \
+              -e PORT=3000 \
+              -e RUST_LOG=info \
+              -e ALLOWED_ORIGINS=https://battle-cp.vercel.app \
+              -e DISCORD_WEBHOOK_URL="${{ secrets.DISCORD_WEBHOOK_URL }}" \
+              --memory 1g \
+              --cpus 1.5 \
+              battlecp-backend:latest
+
+            # Health check
+            echo "⏳ Waiting for backend..."
+            for i in $(seq 1 15); do
+              if docker exec battlecp-backend curl -sf http://localhost:3000/health 2>/dev/null; then
+                echo ""
+                echo "✅ Backend is healthy!"
+                break
+              fi
+              if [ "$i" -eq 15 ]; then
+                echo ""
+                echo "⚠️  Health check timed out. Check: docker logs battlecp-backend"
+              fi
+              sleep 2
+            done
+
+            # Clean up old images
+            docker image prune -f --filter "until=24h" 2>/dev/null || true
+
+            echo "✅ Deployment complete!"

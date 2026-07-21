@@ -1,9 +1,14 @@
 {
   "redirects": [
     {
-      "source": "/:path*",
-      "destination": "https://battle-cp.duckdns.org/:path*",
-      "permanent": false
+      "source": "/lobby/:path*",
+      "destination": "https://battle-cp.duckdns.org/lobby/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/game/:path*",
+      "destination": "https://battle-cp.duckdns.org/game/:path*",
+      "permanent": true
     }
   ]
 }

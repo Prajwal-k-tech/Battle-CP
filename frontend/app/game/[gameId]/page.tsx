@@ -8,7 +8,7 @@ export async function generateMetadata({
   params: Promise<{ gameId: string }>;
 }): Promise<Metadata> {
   const { gameId } = await params;
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org";
 
   return {
     title: `Battle CP - Game ${gameId.slice(0, 8)}`,

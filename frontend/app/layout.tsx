@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Battle CP | Competitive Programming Naval Combat",
     description: "Battleship meets Competitive Programming. Solve problems to win the naval war.",
-    url: process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app",
+    url: process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org",
     siteName: "Battle CP",
     images: [
       {
@@ -59,7 +59,7 @@ export const metadata: Metadata = {
     creator: "@oGhostyyy",
   },
   alternates: {
-    canonical: process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app",
+    canonical: process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org",
   },
   robots: {
     index: true,
@@ -78,7 +78,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.vercel.app";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org";
   
   // Organization + Website JSON-LD Schema
   const organizationSchema = {

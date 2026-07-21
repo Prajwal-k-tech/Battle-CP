@@ -1,68 +1,67 @@
 #!/bin/bash
 set -e
 
-# Battle-CP GCP Deployment Script
-# Deploys to Compute Engine e2-micro VM (always-free tier)
-
 VM_NAME="battlecp-server"
 ZONE="us-central1-a"
 PROJECT="battle-cp-prod"
 
-echo "🚀 Starting Battle-CP GCP Deployment..."
+echo "🚀 Deploying Battle-CP to GCP..."
 
-# Load environment variables from .env
+# Load env vars
 if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-# Build Docker image locally
-echo "🔨 Building Rust Docker image..."
+# 1. Build backend Docker image
+echo "🔨 Building backend Docker image..."
 docker build -t battlecp-backend:latest ./backend
-
-# Save image as tar.gz
-echo "📦 Saving Docker image..."
 docker save battlecp-backend:latest | gzip > /tmp/battlecp-backend.tar.gz
 
-# Transfer to VM
-echo "☁️  Transferring image to GCP VM..."
-gcloud compute scp /tmp/battlecp-backend.tar.gz ${VM_NAME}:/tmp/battlecp-backend.tar.gz --zone=${ZONE}
+# 2. Build frontend
+echo "🔨 Building frontend..."
+cd frontend && npm run build && cd ..
+tar czf /tmp/frontend.tar.gz --exclude='node_modules/.cache' --exclude='.next/cache' \
+  .next node_modules package.json public app lib hooks types context utils
 
-# Stop and remove old container
-echo "🔄 Stopping old container..."
+# 3. Transfer to VM
+echo "☁️  Transferring to GCP VM..."
+gcloud compute scp /tmp/battlecp-backend.tar.gz ${VM_NAME}:/tmp/ --zone=${ZONE}
+gcloud compute scp /tmp/frontend.tar.gz ${VM_NAME}:/tmp/ --zone=${ZONE}
+
+# 4. Deploy backend
+echo "🔄 Deploying backend..."
 gcloud compute ssh ${VM_NAME} --zone=${ZONE} --command="
   sudo docker stop battlecp-backend 2>/dev/null || true
   sudo docker rm battlecp-backend 2>/dev/null || true
-"
-
-# Load new image and start container
-echo "🚀 Deploying new container..."
-gcloud compute ssh ${VM_NAME} --zone=${ZONE} --command="
   sudo docker load < /tmp/battlecp-backend.tar.gz
   sudo docker run -d \
     --name battlecp-backend \
     --restart unless-stopped \
-    -p 80:3000 \
+    -p 127.0.0.1:3000:3000 \
     -e PORT=3000 \
     -e RUST_LOG=info \
-    -e ALLOWED_ORIGINS='${ALLOWED_ORIGINS}' \
+    -e ALLOWED_ORIGINS='https://battle-cp.vercel.app,http://localhost:3000' \
     -e DISCORD_WEBHOOK_URL='${DISCORD_WEBHOOK_URL}' \
     battlecp-backend:latest
 "
 
-# Clean up local tar
-rm -f /tmp/battlecp-backend.tar.gz
+# 5. Deploy frontend
+echo "🔄 Deploying frontend..."
+gcloud compute ssh ${VM_NAME} --zone=${ZONE} --command="
+  sudo rm -rf /opt/battlecp-frontend
+  sudo mkdir -p /opt/battlecp-frontend
+  cd /opt/battlecp-frontend
+  sudo tar xzf /tmp/frontend.tar.gz
+  sudo systemctl restart battlecp-frontend
+"
 
-# Get VM IP
+# 6. Reload nginx
+echo "🔄 Reloading nginx..."
+gcloud compute ssh ${VM_NAME} --zone=${ZONE} --command="sudo systemctl reload nginx"
+
+# Cleanup
+rm -f /tmp/battlecp-backend.tar.gz /tmp/frontend.tar.gz
+
 EXTERNAL_IP=$(gcloud compute instances describe ${VM_NAME} --zone=${ZONE} --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-
 echo ""
-echo "✅ Deployment complete!"
-echo ""
-echo "Backend URL: http://${EXTERNAL_IP}"
-echo "WebSocket:   ws://${EXTERNAL_IP}"
-echo ""
-echo "📋 Update your Vercel env vars:"
-echo "   NEXT_PUBLIC_API_URL=http://${EXTERNAL_IP}"
-echo "   NEXT_PUBLIC_WS_URL=ws://${EXTERNAL_IP}"
-echo ""
-echo "Don't forget to rebuild the frontend after updating env vars!"
+echo "✅ Deployed! Live at: http://${EXTERNAL_IP}"

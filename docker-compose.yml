@@ -1,0 +1,38 @@
+# Battle CP - Production Docker Compose for Oracle Cloud
+# Used by deploy_oracle.sh on the Oracle VM
+#
+# Usage: docker compose up -d
+
+services:
+  battlecp-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: battlecp-backend:latest
+    container_name: battlecp-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - PORT=3000
+      - RUST_LOG=${RUST_LOG:-info}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://battle-cp.vercel.app}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - battlecp-net
+
+networks:
+  battlecp-net:
+    name: battlecp-net
+    driver: bridge
