@@ -1,3 +1,15 @@
 {
-  "redirects": []
+  "redirects": [
+    {
+      "has": [
+        {
+          "type": "host",
+          "value": "battle-cp.vercel.app"
+        }
+      ],
+      "source": "/(.*)",
+      "destination": "https://battle-cp.tech/$1",
+      "permanent": false
+    }
+  ]
 }
