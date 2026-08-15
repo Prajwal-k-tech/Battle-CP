@@ -99,3 +99,4 @@ frontend/public/assets/
 frontend/.next/dev/lock
 frontend/coverage/
 .vercel
+.env*

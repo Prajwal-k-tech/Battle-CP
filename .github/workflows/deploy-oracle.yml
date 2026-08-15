@@ -81,7 +81,7 @@ jobs:
               -p 127.0.0.1:3000:3000 \
               -e PORT=3000 \
               -e RUST_LOG=info \
-              -e ALLOWED_ORIGINS=https://battle-cp.vercel.app \
+              -e ALLOWED_ORIGINS=https://battle-cp.tech,https://battle-cp.vercel.app \
               -e DISCORD_WEBHOOK_URL="${{ secrets.DISCORD_WEBHOOK_URL }}" \
               --memory 1g \
               --cpus 1.5 \

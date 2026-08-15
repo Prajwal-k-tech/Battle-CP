@@ -42,7 +42,7 @@ gcloud compute ssh ${VM_NAME} --zone=${ZONE} --command="
     -p 127.0.0.1:3000:3000 \
     -e PORT=3000 \
     -e RUST_LOG=info \
-    -e ALLOWED_ORIGINS='https://battle-cp.duckdns.org,http://localhost' \
+    -e ALLOWED_ORIGINS='https://battle-cp.tech,https://battle-cp.vercel.app,http://localhost' \
     -e DISCORD_WEBHOOK_URL='${DISCORD_WEBHOOK_URL}' \
     battlecp-backend:latest
 "
@@ -65,4 +65,4 @@ gcloud compute ssh ${VM_NAME} --zone=${ZONE} --command="sudo systemctl reload ng
 rm -f /tmp/battlecp-backend.tar.gz /tmp/frontend.tar.gz
 
 echo ""
-echo "✅ Deployment complete! Live at: https://battle-cp.duckdns.org"
+echo "✅ Deployment complete! Live at: https://battle-cp.tech"

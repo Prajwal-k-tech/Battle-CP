@@ -1,4 +1,4 @@
-const PROD_API_BASE_URL = "https://battle-cp.duckdns.org";
+const PROD_API_BASE_URL = "https://api.battle-cp.tech";
 
 function trimTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;

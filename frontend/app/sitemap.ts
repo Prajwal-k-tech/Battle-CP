@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://battle-cp.duckdns.org'
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://battle-cp.tech'
   
   return [
     {

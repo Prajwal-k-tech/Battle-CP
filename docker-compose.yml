@@ -16,7 +16,7 @@ services:
     environment:
       - PORT=3000
       - RUST_LOG=${RUST_LOG:-info}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://battle-cp.vercel.app}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://battle-cp.tech,https://battle-cp.vercel.app}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     deploy:
       resources:

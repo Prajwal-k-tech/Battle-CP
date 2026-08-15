@@ -259,48 +259,67 @@ Mirrors backend protocol.rs exactly for type safety.
 
 ## Deployment
 
-### Hosting: Oracle Cloud Always Free
+### Current: Vercel + GCP Cloud VM
 
-**VM Specs (A1 Flex):**
-- 4 ARM OCPUs + 24GB RAM (always free)
-- Ubuntu 22.04 / 24.04
-- Public IP with port 80/443
+**Frontend: Vercel**
+- Domain: `battle-cp.tech` (primary), `battle-cp.vercel.app` (redirects to .tech)
+- Auto-deploys from GitHub main branch
+- SSL auto-provisioned by Vercel
 
-**Deployment Scripts:**
-- `oracle_setup.sh` — One-time VM setup (Docker, firewall, anti-idle cron)
-- `deploy_oracle.sh` — Build & deploy backend to Oracle VM
-- `oracle_anti_idle.sh` — Prevents idle instance reclamation
-- `nginx_battlecp.conf` — Nginx reverse proxy with WebSocket support
+**Backend: GCP Compute Engine (always-free e2-micro)**
+- Instance: `battlecp-server` (zone: `us-central1-a`)
+- IP: `34.121.245.90`
+- Domain: `api.battle-cp.tech` (SSL via Let's Encrypt)
+- Fallback: `battle-cp.duckdns.org` (full stack, documented in `DNS_MIGRATION.md`)
 
-**Deploy Flow:**
-```bash
-# 1. One-time: Set up Oracle VM
-ssh ubuntu@<VM_IP> 'bash -s' < oracle_setup.sh
-
-# 2. Deploy backend
-ORACLE_SSH_HOST=ubuntu@<VM_IP> bash deploy_oracle.sh
-
-# 3. Set up TLS (optional)
-ssh ubuntu@<VM_IP> 'sudo certbot certonly --standalone -d yourdomain.com'
+**Architecture:**
+```
+battle-cp.tech          → Vercel (Next.js frontend)
+api.battle-cp.tech      → GCP VM (Rust backend via nginx → Docker :3000)
+battle-cp.vercel.app    → 301 redirect to battle-cp.tech
+battle-cp.duckdns.org   → GCP VM full stack fallback (nginx → frontend :3001 + backend :3000)
 ```
 
-**Anti-Idle Cron:**
-- Runs every 5 minutes
-- Burns ~20% CPU for 60s if idle < 15%
-- Prevents Oracle from reclaiming instance after 7 days
+**Deployment Scripts:**
+- `deploy_gcp.sh` — Build & deploy backend + frontend to GCP VM
+- `deploy_backend.sh` — Legacy Azure Container Apps deployment (unused)
+- `deploy_oracle.sh` — Oracle Cloud deployment (unused, kept as reference)
+- `oracle_setup.sh` — One-time Oracle VM setup (kept as reference)
+- `oracle_anti_idle.sh` — Oracle anti-idle cron (kept as reference)
+- `nginx_battlecp.conf` — Oracle nginx config (kept as reference)
+
+**GCP VM Services:**
+- Docker: `battlecp-backend` on `127.0.0.1:3000`
+- Next.js: `battlecp-frontend.service` on `* :3001`
+- Nginx: Reverse proxy (80/443) for both `battle-cp.duckdns.org` and `api.battle-cp.tech`
+
+**Deploy Flow (GCP):**
+```bash
+# 1. One-time: Set up GCP VM (install Docker, nginx, certbot)
+# 2. Deploy
+bash deploy_gcp.sh
+
+# 3. SSL (auto-renews)
+ssh to VM: sudo certbot --nginx -d api.battle-cp.tech
+```
 
 ### Environment Variables
 
 ```bash
 # Backend
 PORT=3000
-ALLOWED_ORIGINS=https://battle-cp.vercel.app
+RUST_LOG=info
+ALLOWED_ORIGINS=https://battle-cp.tech,https://battle-cp.vercel.app
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 
-# Frontend
-NEXT_PUBLIC_API_URL=https://battle-cp.vercel.app
-NEXT_PUBLIC_WS_URL=wss://battle-cp.vercel.app
+# Frontend (Vercel env vars)
+NEXT_PUBLIC_API_URL=https://api.battle-cp.tech
+NEXT_PUBLIC_WS_URL=wss://api.battle-cp.tech
 ```
+
+### DNS Migration
+
+When the `.tech` domain expires, see `DNS_MIGRATION.md` for rollback instructions to DuckDNS.
 
 
 ---

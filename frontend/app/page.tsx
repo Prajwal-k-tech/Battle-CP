@@ -51,19 +51,19 @@ export default function Home() {
         "@type": "ListItem",
         "position": 1,
         "name": "Home",
-        "item": process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org"
+        "item": process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.tech"
       },
       {
         "@type": "ListItem",
         "position": 2,
         "name": "Create Game",
-        "item": `${process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org"}/lobby/create`
+        "item": `${process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.tech"}/lobby/create`
       },
       {
         "@type": "ListItem",
         "position": 3,
         "name": "Join Game",
-        "item": `${process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.duckdns.org"}/lobby/join`
+        "item": `${process.env.NEXT_PUBLIC_APP_URL || "https://battle-cp.tech"}/lobby/join`
       }
     ]
   };
