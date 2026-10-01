@@ -36,7 +36,7 @@ The live service may not yet run the latest source revision. Check the deploymen
 ### Requirements
 
 - A current stable Rust toolchain.
-- Node.js and npm compatible with the frontend's package.json.
+- Node.js 20.9 or later and npm.
 - A Codeforces account and network access to its public API.
 
 ### Clone
@@ -48,13 +48,7 @@ cd Battle-CP
 
 ### Backend configuration
 
-Copy the backend environment example:
-
-```bash
-cp .env.example backend/.env
-```
-
-Edit backend/.env for local development:
+Create `backend/.env` for local development:
 
 ```dotenv
 PORT=4000
@@ -63,7 +57,7 @@ ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 DISCORD_WEBHOOK_URL=
 ```
 
-Leave the optional Discord webhook unset or empty when you do not need match logging. Keep real webhook credentials out of version control.
+The root `.env.example` contains deployment-oriented defaults, so do not copy it unchanged for local development. Leave the optional Discord webhook unset or empty when you do not need match logging. Keep real webhook credentials out of version control.
 
 ### Frontend configuration
 
