@@ -1,80 +1,113 @@
-# Battle CP
+# BattleCP
 
-**Competitive Programming meets Battleship** — Real-time multiplayer game combining Codeforces problems with classic naval combat.
+A multiplayer game that combines **Battleship with competitive programming**. Players fire at an opponent's fleet; overheating locks their weapons until they solve an assigned Codeforces problem.
 
-<img width="1920" height="955" alt="image" src="https://github.com/user-attachments/assets/4f4c59cb-ec5a-4335-b8ce-5f442fa0422c" />
+**[Play BattleCP](https://battle-cp.tech/)** · **[Game rules](rules.md)** · **[Architecture](ARCHITECTURE.md)** · **[Codeforces launch discussion](https://codeforces.com/blog/entry/152124)**
 
-## Prerequisites
+<img width="1920" height="955" alt="BattleCP multiplayer game interface" src="https://github.com/user-attachments/assets/4f4c59cb-ec5a-4335-b8ce-5f442fa0422c" />
 
-Before running locally, ensure you have:
-- **Node.js** 18+ ([download](https://nodejs.org/))
-- **Rust** 1.75+ ([install rustup](https://rustup.rs/))
-- **A Codeforces account** ([create one](https://codeforces.com/))
+## How it works
 
-## Environment Setup
+1. Create or join a room using a Codeforces handle.
+2. Place your fleet and choose the match settings.
+3. Fire at the opponent's grid. Shots accumulate heat.
+4. Solve the assigned problem to unlock overheated weapons and continue the match.
 
-### 1. Clone the Repository
+Difficulty modes, veto penalties and sudden-death rules are explained in [rules.md](rules.md).
+
+## Engineering
+
+- **Rust, Axum and Tokio backend:** HTTP endpoints and WebSocket connections coordinate game state.
+- **Server-side rules:** fleet placement, shot validity, game phases and submission checks are handled by the backend.
+- **Codeforces integration:** retrieves problem/submission information; API requests are throttled and cached.
+- **Next.js and TypeScript frontend:** lobby creation, fleet placement and live match updates.
+- **Reconnect support:** restores a player's view while keeping the opponent's unhit ships hidden.
+
+These are implementation features, not throughput benchmarks or a guarantee against every form of cheating. Match state is kept in memory; service restarts do not imply durable match recovery.
+
+## Status
+
+BattleCP is publicly deployed, and the [community launch thread](https://codeforces.com/blog/entry/152124) includes player feedback. This README does not claim usage or performance metrics.
+
+The live service may not yet run the latest source revision. Check the deployment itself for its current behavior.
+
+## Run locally
+
+### Requirements
+
+- A current stable Rust toolchain.
+- Node.js and npm compatible with the frontend's package.json.
+- A Codeforces account and network access to its public API.
+
+### Clone
 
 ```bash
-git clone https://github.com/yourusername/Battle-CP.git
+git clone https://github.com/Prajwal-k-tech/Battle-CP.git
 cd Battle-CP
 ```
 
-### 2. Set Up Environment Variables
+### Backend configuration
 
-Copy the example environment files and fill in your values:
+Copy the backend environment example:
 
 ```bash
-# Root directory (for backend config)
-cp .env.example .env
-
-# Frontend directory (optional, for local dev)
-cd frontend
-cp .env.example .env.local
-cd ..
+cp .env.example backend/.env
 ```
 
-Edit `.env` in the root directory:
-```bash
-# Required for Discord match logging (optional for local dev)
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+Edit backend/.env for local development:
 
-# Backend configuration
+```dotenv
+PORT=4000
 RUST_LOG=info
-PORT=3000
-ALLOWED_ORIGINS=https://battle-cp.vercel.app
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+DISCORD_WEBHOOK_URL=
 ```
 
-**Note:** For local development without webhook logging, you can leave `DISCORD_WEBHOOK_URL` empty or skip it entirely.
+Leave the optional Discord webhook unset or empty when you do not need match logging. Keep real webhook credentials out of version control.
 
-## Running Locally
+### Frontend configuration
 
-### Backend (Rust)
+Create frontend/.env.local:
+
+```dotenv
+NEXT_PUBLIC_API_URL=http://localhost:4000
+NEXT_PUBLIC_WS_URL=ws://localhost:4000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+Explicit local URLs are needed because the frontend otherwise defaults to the production API.
+
+### Start both services
+
+Backend terminal:
 
 ```bash
 cd backend
 cargo run
 ```
 
-The backend will start on `http://localhost:3000` by default.
-
-### Frontend (Next.js)
-
-In a new terminal:
+Frontend terminal, from the repository root:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-The frontend will start on `http://localhost:3000` (or fallback to 3001/3002 if 3000 is occupied).
+Open **http://localhost:3000**. The backend runs separately on port **4000**. If you change the frontend port, update the allowed origins and app URL to match.
 
-### Access the Game
+## Repository guide
 
-Open your browser to: **`http://localhost:3000`**
+| Path | Purpose |
+|---|---|
+| backend/src/game.rs, state.rs | Game rules and state |
+| backend/src/ws.rs, protocol.rs | WebSocket handling and messages |
+| backend/src/cf_client.rs | Codeforces client, problem selection and API coordination |
+| backend/src/background.rs | Match timers and cleanup |
+| frontend/ | Next.js game interface |
+| rules.md | Player-facing mechanics |
+| ARCHITECTURE.md | Implementation walkthrough |
 
-## Documentation
+## Acknowledgments
 
-- [**Game Rules**](rules.md) — Detailed rules, difficulty modes, and mechanics
-- [**Architecture**](ARCHITECTURE.md) — System design and technical overview
+Problem statements and submission data come from Codeforces. BattleCP is an independent project and is not affiliated with Codeforces.
